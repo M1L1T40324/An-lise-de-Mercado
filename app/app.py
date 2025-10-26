@@ -8,8 +8,8 @@ import numpy as np
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
 
-st.set_page_config(page_title="📊 Finance Dashboard", layout="wide")
-st.title("📊 Downloader de Dados Financeiros - Dashboard com Regressão e Desvios")
+st.set_page_config(page_title="☝🤓 Market analysis", layout="wide")
+st.title("📊 Downloader de Dados Financeiros + Dashboard com Regressão e Desvios")
 
 # Input: tickers separados por vírgula
 tickers_input = st.text_input("Digite o(s) ticker(s) (ex: PETR4.SA, AAPL, BTC-USD):")
@@ -156,3 +156,4 @@ if st.button("Baixar dados"):
 
     else:
         st.warning("Digite pelo menos um ticker.")
+
