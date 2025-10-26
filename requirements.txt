@@ -5,3 +5,4 @@ matplotlib
 yfinance
 plotly
 scikit-learn
+certifi
