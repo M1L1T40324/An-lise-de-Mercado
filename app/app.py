@@ -61,7 +61,7 @@ for ticker in tickers:
         col5.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
         col6.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
         required_features = ['SMA20', 'EMA20', 'Volatility']
-        existing_features = [f for f in required_features if f in ticker_df.columns]
+        existing_features = [f for f in required_features if f in df.columns]
 
         if len(existing_features) < 1:
             st.warning(f"Não há features suficientes para treinar o modelo de {ticker}.")
@@ -145,6 +145,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
