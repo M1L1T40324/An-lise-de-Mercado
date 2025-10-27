@@ -63,7 +63,7 @@ for ticker in tickers:
 
         # ML
         features = ['SMA20', 'EMA20', 'Volatility']
-        df_ml = ticker_df.dropna(subset=features + ['Close'])  # remove linhas com NaN
+        df_ml = df.dropna(subset=features + ['Close'])  # remove linhas com NaN
         X = df_ml[features]
         y = df_ml['Close']
         # Dividir dados em treino e teste
@@ -141,5 +141,6 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
