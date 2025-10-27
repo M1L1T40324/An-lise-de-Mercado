@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
 import numpy as np
 
-st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
+st.set_page_config(page_title="☝🤓 Market Analysis", layout="wide")
 st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
 
 # Entrada de dados
@@ -115,3 +115,4 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
