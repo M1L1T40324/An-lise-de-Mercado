@@ -51,12 +51,12 @@ for ticker in tickers:
         df["Z_Score"] = (df["Close"] - df["Close"].mean()) / df["Close"].std()
 
         # --- Métricas ---
-        col1, col2 = st.columns(3)
+        col1, col2 = st.columns(2)
         col1.metric("💰 Preço atual", f"R$ {df['Close'].iloc[-1]:.2f}")
         col2.metric("📉 Retorno médio diário", f"{mean_daily:.4%}")
         col2.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
 
-        col3, col4 = st.columns(3)
+        col3, col4 = st.columns(2)
         col4.metric("📊 Volatilidade anualizada", f"{annual_vol:.2%}")
         col4.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
         col5.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
@@ -144,6 +144,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
