@@ -8,7 +8,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
-st.set_page_config(page_title="☝🤓 Market Analysis", layout="wide")
+st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
 st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
 
 # Entrada de dados
@@ -93,7 +93,7 @@ for ticker in tickers:
         y = df['Close'].values.reshape(-1, 1)
         model = LinearRegression()
         model.fit(X, y)
-        n_days = st.number_input("Número de dias para previsão futura",
+        n_days = st.number_input("Número de dias para previsão futura 🔮🤖",
                                  min_value=1,
                                  max_value=365,
                                  value=5,
@@ -190,6 +190,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
