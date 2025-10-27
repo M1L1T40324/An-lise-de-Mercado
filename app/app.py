@@ -85,7 +85,7 @@ for ticker in tickers:
         model = RandomForestRegressor(n_estimators=100, random_state=42)
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
-        mse = mean_squared_error(y_test, y_pred)
+        mse = mean_squared_error(y_test, y_pred)**0.5
         st.write(f"Erro médio quadrático (MSE): {mse:.4f}")
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real Médio ", f"(RMSE): R$ {mse:.4f}")
@@ -146,6 +146,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
