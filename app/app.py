@@ -62,7 +62,7 @@ for ticker in tickers:
         col2.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
         required_features = ['SMA20', 'EMA20', 'Volatility']
         existing_features = [f for f in required_features if f in df.columns]
-
+        
         df['Return'] = df['Close'].pct_change()
         df['SMA5'] = df['Close'].rolling(5).mean()
         df['SMA10'] = df['Close'].rolling(10).mean()
@@ -89,7 +89,7 @@ for ticker in tickers:
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
-        X = np.arange(len(ticker_df)).reshape(-1, 1)
+        X = np.arange(len(df)).reshape(-1, 1)
         y = df['Close'].values.reshape(-1, 1)
         model = LinearRegression()
         model.fit(X, y)
@@ -102,14 +102,14 @@ for ticker in tickers:
         last_index = len(df)
         future_indices = np.arange(last_index, last_index + n_days).reshape(-1, 1)
         future_pred = model.predict(future_indices)
-        future_dates = pd.date_range(start=ticker_df.index[-1] + pd.Timedelta(days=1), periods=n_days)
+        future_dates = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=n_days)
         future_df = pd.DataFrame({'Close': future_pred.flatten()},
                                  index=future_dates)
-        combined_df = pd.concat([ticker_df[['Close']], future_df])
+        combined_df = pd.concat([df[['Close']], future_df])
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=df.index,
-            y=ticker_df['Close'],
+            y=df['Close'],
             mode='lines',
             name='Histórico'
         ))
@@ -191,7 +191,7 @@ for ticker in tickers:
         st.error(f"Erro ao processar {ticker}: {e}")
 
 
-ticker_df
+
 
 
 
