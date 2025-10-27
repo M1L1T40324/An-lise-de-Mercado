@@ -51,14 +51,32 @@ for ticker in tickers:
         col2.metric("Z-Score atual", f"{z_score_atual:.2f}")
         col3.metric("Distância atual", f"{df['Distância'].iloc[-1]:.2f}")
 
-        # --- Gráfico 1: Preço e Regressão ---
+        # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
-        fig1.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Preço Real"))
-        fig1.add_trace(go.Scatter(x=df.index, y=df["Regressão"], mode="lines", name="Linha de Regressão"))
+
+        # Candle
+        fig1.add_trace(go.Candlestick(
+            x=df.index,
+            open=df["Open"],
+            high=df["High"],
+            low=df["Low"],
+            close=df["Close"],
+            name="Candlestick"
+        ))
+
+        # Linha de Regressão
+        fig1.add_trace(go.Scatter(
+            x=df.index, y=df["Regressão"],
+            mode="lines", name="Linha de Regressão",
+            line=dict(color="orange", width=2)
+        ))
+
         fig1.update_layout(
-            title="Evolução do Preço com Linha de Regressão",
+            title="Candlestick com Linha de Regressão",
             xaxis_title="Data", yaxis_title="Preço (R$)",
-            template="plotly_dark", hovermode="x unified"
+            template="plotly_dark",
+            hovermode="x unified",
+            xaxis_rangeslider_visible=False
         )
 
         # --- Gráfico 2: Variação da distância ---
@@ -70,18 +88,19 @@ for ticker in tickers:
             template="plotly_dark", hovermode="x unified"
         )
 
-        # --- Gráfico 3: Volume ---
-        fig3 = go.Figure()
-        fig3.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Volume"))
-        fig3.update_layout(
-            title="Volume de Negociações",
-            xaxis_title="Data", yaxis_title="Volume",
-            template="plotly_dark", hovermode="x unified"
-        )
-
         st.plotly_chart(fig1, use_container_width=True)
         st.plotly_chart(fig2, use_container_width=True)
-        st.plotly_chart(fig3, use_container_width=True)
+
+        # --- Gráfico 3: Volume (apenas para períodos ≤ 1 ano) ---
+        if periodo in ["1mo", "3mo", "6mo", "1y"]:
+            fig3 = go.Figure()
+            fig3.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Volume"))
+            fig3.update_layout(
+                title="Volume de Negociações",
+                xaxis_title="Data", yaxis_title="Volume",
+                template="plotly_dark", hovermode="x unified"
+            )
+            st.plotly_chart(fig3, use_container_width=True)
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
