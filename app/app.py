@@ -89,6 +89,31 @@ for ticker in tickers:
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
+        n_days = st.text_input("Digite quantos dias no futuro você quer viajar")
+        future_preds = []
+        df_future = ticker_df.copy()
+        for i in range(n_days):
+            last_row = df_future.iloc[-1]
+            next_features = pd.DataFrame({
+                'Return': [0],
+                'SMA5': [df_future['Close'].rolling(5).mean().iloc[-1]],
+                'SMA10': [df_future['Close'].rolling(10).mean().iloc[-1]],
+                'EMA5': [df_future['Close'].ewm(span=5, adjust=False).mean().iloc[-1]],
+                'EMA10': [df_future['Close'].ewm(span=10, adjust=False).mean().iloc[-1]],
+                'Volatility5': [df_future['Return'].rolling(5).std().iloc[-1]],
+                'Volatility10': [df_future['Return'].rolling(10).std().iloc[-1]],'Close_minus_SMA5': [last_row['Close'] - df_future['Close'].rolling(5).mean().iloc[-1]],
+                'Close_minus_SMA10': [last_row['Close'] - df_future['Close'].rolling(10).mean().iloc[-1]],
+            })
+            pred = model.predict(next_features)[0]
+            future_preds.append(pred)
+    
+            # Atualiza DataFrame para o próximo passo
+            new_row = pd.DataFrame({'Close': [pred]})
+            df_future = pd.concat([df_future, new_row], ignore_index=True)
+            st.dataframe(df_future.tail(n_days))
+
+
+        
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
 
@@ -146,6 +171,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
