@@ -63,31 +63,30 @@ for ticker in tickers:
         required_features = ['SMA20', 'EMA20', 'Volatility']
         existing_features = [f for f in required_features if f in df.columns]
 
-        if len(existing_features) < 1:
-            st.warning(f"Não há features suficientes para treinar o modelo de {ticker}.")
-        else:
-            df_ml = df.dropna(subset=existing_features + ['Close'])
-            if df_ml.empty:
-                st.warning(f"Não há dados suficientes após remover NaN para {ticker}.")
-            else:
-                X = df_ml[existing_features]
-                y = df_ml['Close']
-               
-                from sklearn.ensemble import RandomForestRegressor
-                from sklearn.model_selection import train_test_split
-                from sklearn.metrics import mean_squared_error
-
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-                model = RandomForestRegressor(n_estimators=100, random_state=42)
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_test)
-                mse = mean_squared_error(y_test, y_pred)
-                st.write(f"Erro médio quadrático (MSE) para {ticker}: {mse:.4f}")
-                df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
-                st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
-                df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
-                st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
-        
+        df['Return'] = df['Close'].pct_change()
+        df['SMA5'] = df['Close'].rolling(5).mean()
+        df['SMA10'] = df['Close'].rolling(10).mean()
+        df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
+        df['EMA10'] = df['Close'].ewm(span=10, adjust=False).mean()
+        df['Volatility5'] = df['Return'].rolling(5).std()
+        df['Volatility10'] = df['Return'].rolling(10).std()
+        df['Close_minus_SMA5'] = df['Close'] - df['SMA5']
+        df['Close_minus_SMA10'] = df['Close'] - df['SMA10']
+        df.fillna(method='bfill', inplace=True)
+        features = ['Return', 'SMA5', 'SMA10', 'EMA5', 'EMA10',
+            'Volatility5', 'Volatility10',
+            'Close_minus_SMA5', 'Close_minus_SMA10']
+        X = df[features]
+        y = df['Close']
+        X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, shuffle=False
+)
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        mse = mean_squared_error(y_test, y_pred)
+        print(f"Erro médio quadrático (MSE): {mse:.4f}")
+        df.loc[X_test.index, 'Pred_Close'] = y_pred
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
 
@@ -145,6 +144,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
