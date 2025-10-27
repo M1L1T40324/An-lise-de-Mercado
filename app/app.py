@@ -62,10 +62,18 @@ for ticker in tickers:
         col6.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
 
         # ML
-        features = ['SMA20', 'EMA20', 'Volatility']
-        df_ml = df.dropna(subset=features + ['Close'])  # remove linhas com NaN
-        X = df_ml[features]
-        y = df_ml['Close']
+        # Verifica se as colunas existem
+        required_features = ['SMA20', 'EMA20', 'Volatility']
+        existing_features = [f for f in required_features if f in ticker_df.columns]
+        if len(existing_features) < 1:
+            st.warning(f"Não há features suficientes para treinar o modelo de {ticker}.")
+        else:
+            df_ml = ticker_df.dropna(subset=existing_features + ['Close'])
+            if df_ml.empty:
+                st.warning(f"Não há dados suficientes após remover NaN para {ticker}.")
+            else:
+                X = df_ml[existing_features]
+                y = df_ml['Close']
         # Dividir dados em treino e teste
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
         # Modelo
@@ -141,6 +149,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
