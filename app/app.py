@@ -89,58 +89,47 @@ for ticker in tickers:
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
+        X = np.arange(len(ticker_df)).reshape(-1, 1)
+        y = ticker_df['Close'].values.reshape(-1, 1)
+        model = LinearRegression()
+        model.fit(X, y)
+        n_days = st.number_input("Número de dias para previsão futura",
+                                 min_value=1,
+                                 max_value=365,
+                                 value=5,
+                                 step=1
+                                )
+        last_index = len(ticker_df)
+        future_indices = np.arange(last_index, last_index + n_days).reshape(-1, 1)
+        future_pred = model.predict(future_indices)
+        future_dates = pd.date_range(start=ticker_df.index[-1] + pd.Timedelta(days=1), periods=n_days)
+        future_df = pd.DataFrame({'Close': future_pred.flatten()},
+                                 index=future_dates)
+        combined_df = pd.concat([ticker_df[['Close']], future_df])
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=ticker_df.index,
+            y=ticker_df['Close'],
+            mode='lines',
+            name='Histórico'
+        ))
+        fig.add_trace(go.Scatter(
+            x=future_df.index,
+            y=future_df['Close'],
+            mode='lines+markers',
+            name='Previsão Futura',
+            line=dict(dash='dash', color='orange')
+        ))
+        fig.update_layout(
 
-X = np.arange(len(ticker_df)).reshape(-1, 1)
-y = ticker_df['Close'].values.reshape(-1, 1)
-model = LinearRegression()
-model.fit(X, y)
-
-# Previsão futura: número de dias definido pelo usuário
-n_days = st.number_input("Número de dias para previsão futura",
-min_value=1,
-max_value=365,
-value=5,
-step=1
-)
-
-# Cria DataFrame para previsões futuras
-last_index = len(ticker_df)
-future_indices = np.arange(last_index, last_index + n_days).reshape(-1, 1)
-future_pred = model.predict(future_indices)
-
-# DataFrame das previsões futuras
-future_dates = pd.date_range(start=ticker_df.index[-1] + pd.Timedelta(days=1), periods=n_days)
-future_df = pd.DataFrame({'Close': future_pred.flatten()},
-                         index=future_dates
-                        )
-# Junta histórico e previsão para plotar
-combined_df = pd.concat([ticker_df[['Close']], future_df])
-
-# Gráfico interativo com histórico + previsão
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=ticker_df.index,
-    y=ticker_df['Close'],
-    mode='lines',
-    name='Histórico'
-))
-fig.add_trace(go.Scatter(
-    x=future_df.index,
-    y=future_df['Close'],
-    mode='lines+markers',
-    name='Previsão Futura',
-    line=dict(dash='dash', color='orange')
-))
-fig.update_layout(
-    title="Histórico + Previsão Futura",
-    xaxis_title="Data",
-    yaxis_title="Preço",
-    plot_bgcolor='rgb(20,20,20)',
-    paper_bgcolor='rgb(20,20,20)',
-    font=dict(color='white')
-)
-
-st.plotly_chart(fig, use_container_width=True)
+            title="Histórico + Previsão Futura",
+            xaxis_title="Data",
+            yaxis_title="Preço",
+            plot_bgcolor='rgb(20,20,20)',
+            paper_bgcolor='rgb(20,20,20)',
+            font=dict(color='white')
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
          
         # --- Gráfico 1: Candle + Linha de Regressão ---
@@ -200,6 +189,7 @@ st.plotly_chart(fig, use_container_width=True)
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
