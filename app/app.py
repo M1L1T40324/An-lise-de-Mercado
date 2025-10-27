@@ -89,7 +89,7 @@ for ticker in tickers:
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
-        X = np.arange(len(ticker_df)).reshape(-1, 1)
+        X = np.arange(len(df)).reshape(-1, 1)
         y = df['Close'].values.reshape(-1, 1)
         model = LinearRegression()
         model.fit(X, y)
@@ -189,6 +189,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
