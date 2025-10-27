@@ -87,8 +87,8 @@ for ticker in tickers:
         rmse = mean_squared_error(y_test, y_pred)**0.5
         mse = mean_squared_error(y_test, y_pred)
         df.loc[X_test.index, 'Pred_Close'] = y_pred
-        col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.4f}")
-        col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.4f}")
+        col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
+        col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
 
@@ -146,6 +146,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
