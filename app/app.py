@@ -62,32 +62,37 @@ for ticker in tickers:
         col2.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
         required_features = ['SMA20', 'EMA20', 'Volatility']
         existing_features = [f for f in required_features if f in df.columns]
-
-        df['Return'] = df['Close'].pct_change()
-        df["LogReturn"] = np.log(df["Close"] / df["Close"].shift(1))
-        df["SMA20"] = df["Close"].rolling(20).mean()
-        df["SMA50"] = df["Close"].rolling(50).mean()
-        df["EMA20"] = df["Close"].ewm(span=20).mean()
-        df["RSI"] = 100 - (100 / (1 + df["Return"].clip(lower=0).rolling(14).mean() / 
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df[ticker]
+            if df.empty:
+                st.warning("⚠️ Não foi possível obter dados para o ticker informado.")
+            else:
+                df['Return'] = df['Close'].pct_change()
+                df["LogReturn"] = np.log(df["Close"] / df["Close"].shift(1))
+                df["SMA20"] = df["Close"].rolling(20).mean()
+                df["SMA50"] = df["Close"].rolling(50).mean()
+                df["EMA20"] = df["Close"].ewm(span=20).mean()
+                df["RSI"] = 100 - (100 / (1 + df["Return"].clip(lower=0).rolling(14).mean() / 
                                   (-df["Return"].clip(upper=0).rolling(14).mean()).abs()))
-        df["Volatility"] = df["Return"].rolling(20).std()
-        df.dropna(inplace=True)
-        df['SMA5'] = df['Close'].rolling(5).mean()
-        df['SMA10'] = df['Close'].rolling(10).mean()
-        df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
-        df['EMA10'] = df['Close'].ewm(span=10, adjust=False).mean()
-        df['Volatility5'] = df['Return'].rolling(5).std()
-        df['Volatility10'] = df['Return'].rolling(10).std()
-        df['Close_minus_SMA5'] = df['Close'] - df['SMA5']
-        df['Close_minus_SMA10'] = df['Close'] - df['SMA10']
-        df.fillna(method='bfill', inplace=True)
-        features = ['Return', 'SMA5', 'SMA10', 'EMA5', 'EMA10',
-                    'Volatility5', 'Volatility10',
-                    'Close_minus_SMA5', 'Close_minus_SMA10',
-                    "SMA20", "SMA50", "EMA20", "RSI", "Volatility",
-                    "LogReturn"
-                   ]
+                df["Volatility"] = df["Return"].rolling(20).std()
+                df.dropna(inplace=True)
+                df['SMA5'] = df['Close'].rolling(5).mean()
+                df['SMA10'] = df['Close'].rolling(10).mean()
+                df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
+                df['EMA10'] = df['Close'].ewm(span=10, adjust=False).mean()
+                df['Volatility5'] = df['Return'].rolling(5).std()
+                df['Volatility10'] = df['Return'].rolling(10).std()
+                df['Close_minus_SMA5'] = df['Close'] - df['SMA5']
+                df['Close_minus_SMA10'] = df['Close'] - df['SMA10']
+                df.fillna(method='bfill', inplace=True)
+                features = ['Return', 'SMA5', 'SMA10', 'EMA5', 'EMA10',
+                            'Volatility5', 'Volatility10',
+                            'Close_minus_SMA5', 'Close_minus_SMA10',
+                            "SMA20", "SMA50", "EMA20", "RSI", "Volatility",
+                            "LogReturn"
+                           ]
         target = "Close"
+        x = df[features]
         y = df[target]
         # Normalizar
         scaler = StandardScaler()
@@ -239,6 +244,7 @@ for ticker in tickers:
     
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
