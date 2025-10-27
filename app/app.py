@@ -112,7 +112,7 @@ for ticker in tickers:
 
         future_dates = pd.date_range(df.index[-1], periods=ndays+1, freq="B")[1:]
         df_future = pd.DataFrame({"Date": future_dates, "Predicted_Close": future_preds})
-        st.line_chart(df_future.set_index("Date"))
+        
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
@@ -214,9 +214,32 @@ for ticker in tickers:
                 template="plotly_dark", hovermode="x unified"
             )
             st.plotly_chart(fig3, use_container_width=True)
-
+            #Gráfico 4
+            fig.add_trace(go.Scatter(
+                x=df_future.index,
+                y=df_future["Predicted_Close"],
+                mode="lines+markers",
+                name="Previsão Futura",
+                line=dict(dash="dash", color="orange", width=2),
+                marker=dict(size=6)
+            ))
+            # Layout estilizado
+            fig.update_layout(
+                title=f"📈 {ticker} — Histórico e Previsão dos Próximos {ndays} Dias",
+                xaxis_title="Data",
+                yaxis_title="Preço (R$)",
+                template="plotly_dark",
+                plot_bgcolor="rgb(20,20,20)",
+                paper_bgcolor="rgb(20,20,20)",
+                font=dict(color="white"),
+                hovermode="x unified",
+                xaxis_rangeslider_visible=False
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
