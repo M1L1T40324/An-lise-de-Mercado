@@ -57,9 +57,16 @@ if st.button("Baixar dados"):
                 # Métricas de previsão
                 r2 = model.score(X, y)
                 rmse = np.sqrt(mean_squared_error(y, ticker_df["Close_Pred"]))
-                mape = np.mean(np.abs((y - ticker_df["Close_Pred"]) / y)) * 100
-                ticker_df["Deviation"] = ticker_df["Close"] - ticker_df["Close_Pred"]
-                z_score = ticker_df["Deviation"].mean() / ticker_df["Deviation"].std()
+                # Corrigir formato de y
+                y_flat = y.flatten()
+                y_pred = ticker_df["Close_Pred"].values.flatten()
+                # Evita divisões por zero e valores ausentes
+                mask = (y_flat != 0) & ~np.isnan(y_flat) & ~np.isnan(y_pred)
+                if mask.sum() > 0:
+                    mape = np.mean(np.abs((y_flat[mask] - y_pred[mask]) / y_flat[mask])) * 100
+                else:
+                    mape = np.nan
+
 
                 # Resultados principais
                 st.subheader(f"📈 Dashboard - {ticker}")
@@ -171,3 +178,4 @@ if st.button("Baixar dados"):
             )
     else:
         st.warning("Digite pelo menos um ticker.")
+
