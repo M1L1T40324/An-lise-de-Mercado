@@ -60,35 +60,33 @@ for ticker in tickers:
         col4.metric("📊 Volatilidade anualizada", f"{annual_vol:.2%}")
         col5.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
         col6.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
+        required_features = ['SMA20', 'EMA20', 'Volatility']
+        existing_features = [f for f in required_features if f in ticker_df.columns]
 
-        # ML
-       required_features = ['SMA20', 'EMA20', 'Volatility']
-       existing_features = [f for f in required_features if f in ticker_df.columns]
-
-       if len(existing_features) < 1:
-           st.warning(f"Não há features suficientes para treinar o modelo de {ticker}.")
-       else:
-           df_ml = df.dropna(subset=existing_features + ['Close'])
-           if df_ml.empty:
-               st.warning(f"Não há dados suficientes após remover NaN para {ticker}.")
-           else:
-               X = df_ml[existing_features]
-               y = df_ml['Close']
+        if len(existing_features) < 1:
+            st.warning(f"Não há features suficientes para treinar o modelo de {ticker}.")
+        else:
+            df_ml = df.dropna(subset=existing_features + ['Close'])
+            if df_ml.empty:
+                st.warning(f"Não há dados suficientes após remover NaN para {ticker}.")
+            else:
+                X = df_ml[existing_features]
+                y = df_ml['Close']
                
-               from sklearn.ensemble import RandomForestRegressor
-               from sklearn.model_selection import train_test_split
-               from sklearn.metrics import mean_squared_error
+                from sklearn.ensemble import RandomForestRegressor
+                from sklearn.model_selection import train_test_split
+                from sklearn.metrics import mean_squared_error
 
-               X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-               model = RandomForestRegressor(n_estimators=100, random_state=42)
-               model.fit(X_train, y_train)
-               y_pred = model.predict(X_test)
-               mse = mean_squared_error(y_test, y_pred)
-               st.write(f"Erro médio quadrático (MSE) para {ticker}: {mse:.4f}")
-               df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
-               st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
-               df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
-               st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+                mse = mean_squared_error(y_test, y_pred)
+                st.write(f"Erro médio quadrático (MSE) para {ticker}: {mse:.4f}")
+                df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
+                st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
+                df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
+                st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
         
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
@@ -147,6 +145,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
