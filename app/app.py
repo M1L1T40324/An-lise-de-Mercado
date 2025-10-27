@@ -146,98 +146,99 @@ for ticker in tickers:
                     mode='lines',
                     name='Histórico'
                 ))
-               fig.add_trace(go.Scatter(
+                fig.add_trace(go.Scatter(
                    x=future_df.index,
                    y=future_df['Close'],
                    mode='lines+markers',
                    name='Previsão Futura',
                    line=dict(dash='dash', color='orange')
-               ))
-               fig.update_layout(
-                   title="Histórico + Previsão Futura",
-                   xaxis_title="Data",
-                   yaxis_title="Preço",
-                   plot_bgcolor='rgb(20,20,20)',
-                   paper_bgcolor='rgb(20,20,20)',
-                   font=dict(color='white')
-               )
-               st.plotly_chart(fig, use_container_width=True)
-               # --- Gráfico 1: Candle + Linha de Regressão ---
-               fig1 = go.Figure()
-               fig1.add_trace(go.Candlestick(
-                   x=df.index,
-                   open=df["Open"],
-                   high=df["High"],
-                   low=df["Low"],
-                   close=df["Close"],
-                   name="Candlestick"
-               ))
-               fig1.add_trace(go.Scatter(
-                   x=df.index, y=df["Regressão"],
-                   mode="lines", name="Linha de Regressão",
-                   line=dict(color="orange", width=2)
-               ))
-               fig1.update_layout(
-                   title="Candlestick com Linha de Regressão",
-                   xaxis_title="Data", yaxis_title="Preço (R$)",
-                   template="plotly_dark",
-                   hovermode="x unified",
-                   xaxis_rangeslider_visible=False
-               )
-               st.plotly_chart(fig1, use_container_width=True)
+                ))
+                fig.update_layout(
+                    title="Histórico + Previsão Futura",
+                    xaxis_title="Data",
+                    yaxis_title="Preço",
+                    plot_bgcolor='rgb(20,20,20)',
+                    paper_bgcolor='rgb(20,20,20)',
+                    font=dict(color='white')
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                # --- Gráfico 1: Candle + Linha de Regressão ---
+                fig1 = go.Figure()
+                fig1.add_trace(go.Candlestick(
+                    x=df.index,
+                    open=df["Open"],
+                    high=df["High"],
+                    low=df["Low"],
+                    close=df["Close"],
+                    name="Candlestick"
+                ))
+                fig1.add_trace(go.Scatter(
+                    x=df.index, y=df["Regressão"],
+                    mode="lines", name="Linha de Regressão",
+                    line=dict(color="orange", width=2)
+                ))
+                fig1.update_layout(
+                    title="Candlestick com Linha de Regressão",
+                    xaxis_title="Data", yaxis_title="Preço (R$)",
+                    template="plotly_dark",
+                    hovermode="x unified",
+                    xaxis_rangeslider_visible=False
+                )
+                st.plotly_chart(fig1, use_container_width=True)
 
-               # --- Gráfico 2: Variação da Distância ---
-               df["Distância_var"] = df["Distância"].diff()
-               fig2 = go.Figure()
-               fig2.add_trace(go.Scatter(
-                   x=df.index, y=df["Distância_var"],
-                   mode="lines", name="Variação da Distância"
-               ))
-               fig2.update_layout(
-                   title="📏 Variação da Distância entre o Preço e a Linha de Regressão",
-                   xaxis_title="Data", yaxis_title="Variação (R$)",
-                   template="plotly_dark", hovermode="x unified"
-               )
-               st.plotly_chart(fig2, use_container_width=True)
+                # --- Gráfico 2: Variação da Distância ---
+                df["Distância_var"] = df["Distância"].diff()
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(
+                    x=df.index, y=df["Distância_var"],
+                    mode="lines", name="Variação da Distância"
+                ))
+                fig2.update_layout(
+                    title="📏 Variação da Distância entre o Preço e a Linha de Regressão",
+                    xaxis_title="Data", yaxis_title="Variação (R$)",
+                    template="plotly_dark", hovermode="x unified"
+                )
+                st.plotly_chart(fig2, use_container_width=True)
 
-               # --- Gráfico 3: Volume (apenas até 1 ano) ---
-               if periodo in ["1mo", "3mo", "6mo", "1y"]:
-                   fig3 = go.Figure()
-                   fig3.add_trace(go.Bar(
-                       x=df.index, y=df["Volume"],
-                       name="Volume", marker_color="blue"
-                   ))
-               fig3.update_layout(
-                   title="📦 Volume de Negociações",
-                   xaxis_title="Data", yaxis_title="Volume",
+                # --- Gráfico 3: Volume (apenas até 1 ano) ---
+                if periodo in ["1mo", "3mo", "6mo", "1y"]:
+                    fig3 = go.Figure()
+                    fig3.add_trace(go.Bar(
+                        x=df.index, y=df["Volume"],
+                        name="Volume", marker_color="blue"
+                    ))
+                fig3.update_layout(
+                    title="📦 Volume de Negociações",
+                    xaxis_title="Data", yaxis_title="Volume",
                    template="plotly_dark", hovermode="x unified"
-               )
-               st.plotly_chart(fig3, use_container_width=True)
-               #Gráfico 4
-               fig.add_trace(go.Scatter(
-                   x=df_future.index,
-                   y=df_future["Predicted_Close"],
-                   mode="lines+markers",
-                   name="Previsão Futura",
-                   line=dict(dash="dash", color="orange", width=2),
-                   marker=dict(size=6)
-               ))
-               # Layout estilizado
-               fig.update_layout(
-                   title=f"📈 {ticker} — Histórico e Previsão dos Próximos {ndays} Dias",
-                   xaxis_title="Data",
-                   yaxis_title="Preço (R$)",
-                   template="plotly_dark",
-                   plot_bgcolor="rgb(20,20,20)",
-                   paper_bgcolor="rgb(20,20,20)",
-                   font=dict(color="white"),
-                   hovermode="x unified",
-                   xaxis_rangeslider_visible=False
-               )
-               st.plotly_chart(fig, use_container_width=True)
+                )
+                st.plotly_chart(fig3, use_container_width=True)
+                #Gráfico 4
+                fig.add_trace(go.Scatter(
+                    x=df_future.index,
+                    y=df_future["Predicted_Close"],
+                    mode="lines+markers",
+                    name="Previsão Futura",
+                    line=dict(dash="dash", color="orange", width=2),
+                    marker=dict(size=6)
+                ))
+                # Layout estilizado
+                fig.update_layout(
+                    title=f"📈 {ticker} — Histórico e Previsão dos Próximos {ndays} Dias",
+                    xaxis_title="Data",
+                    yaxis_title="Preço (R$)",
+                    template="plotly_dark",
+                    plot_bgcolor="rgb(20,20,20)",
+                    paper_bgcolor="rgb(20,20,20)",
+                    font=dict(color="white"),
+                    hovermode="x unified",
+                    xaxis_rangeslider_visible=False
+                )
+                st.plotly_chart(fig, use_container_width=True)
     
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
