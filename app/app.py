@@ -53,6 +53,7 @@ for ticker in tickers:
         # --- Métricas ---
         col1, col2, col3 = st.columns(3)
         col1.metric("💰 Preço atual", f"R$ {df['Close'].iloc[-1]:.2f}")
+        col1.metric("📉 Erro Real Médio ", f"(RMSE): R$ {mse:.4f}")
         col2.metric("📉 Retorno médio diário", f"{mean_daily:.4%}")
         col3.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
 
@@ -144,6 +145,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
