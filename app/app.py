@@ -57,7 +57,7 @@ for ticker in tickers:
         col2.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
 
         col3, col4 = st.columns(2)
-        col3.metric("📊 Volatilidade anualizada", f"{annual_vol:.2%}")
+        col1.metric("📊 Volatilidade anualizada", f"{annual_vol:.2%}")
         col4.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
         col4.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
         required_features = ['SMA20', 'EMA20', 'Volatility']
@@ -144,6 +144,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
