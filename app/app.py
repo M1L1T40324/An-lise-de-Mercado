@@ -1,186 +1,87 @@
 import streamlit as st
-import certifi, ssl, os
-os.environ["SSL_CERT_FILE"] = certifi.where()
-ssl._create_default_https_context = ssl._create_unverified_context
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
+import numpy as np
 
-st.set_page_config(page_title="☝🤓 Market analysis", layout="wide")
-st.title("📊 Downloader de Dados Financeiros + Dashboard com Regressão e Desvios")
+st.set_page_config(page_title="Análise de Mercado", layout="wide")
+st.title("📈 Análise de Mercado com Regressão e Indicadores Estatísticos")
 
-# Input
-tickers_input = st.text_input("Digite o(s) ticker(s) (ex: PETR4.SA, AAPL, BTC-USD):")
-tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+# Entrada de dados
+tickers = st.text_input("Digite os tickers separados por vírgula:", "PETR4.SA, VALE3.SA, ITUB4.SA")
+tickers = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
-if st.button("Baixar dados"):
-    if tickers:
-        st.write(f"Baixando dados de **{', '.join(tickers)}**...")
-        df = yf.download(tickers, group_by='ticker', auto_adjust=True, period="max")
-        df = df.dropna(how="all")
+periodo = st.selectbox("Selecione o período:", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"])
+intervalo = st.selectbox("Selecione o intervalo:", ["1d", "1wk", "1mo"])
 
-        if df.empty:
-            st.error("⚠️ Nenhum dado encontrado. Verifique os tickers digitados.")
-        else:
-            st.success(f"✅ Dados baixados! Total de tickers: {len(tickers)}")
-            final_df = pd.DataFrame()
+# Baixar dados
+data = yf.download(tickers, period=periodo, interval=intervalo, group_by='ticker', auto_adjust=True)
 
-            for ticker in tickers:
-                try:
-                    ticker_df = df[ticker].copy()
-                except:
-                    ticker_df = df.copy()
+# Função auxiliar para corrigir colunas
+def corrigir_colunas(df, ticker):
+    """Garante que as colunas tenham nomes simples mesmo com MultiIndex."""
+    if isinstance(df.columns, pd.MultiIndex):
+        df = df[ticker].copy()
+    return df
 
-                # Cálculos básicos
-                ticker_df[f"{ticker}_Return"] = ticker_df["Close"].pct_change()
-                ticker_df[f"{ticker}_SMA20"] = ticker_df["Close"].rolling(window=20).mean()
-                ticker_df[f"{ticker}_EMA20"] = ticker_df["Close"].ewm(span=20, adjust=False).mean()
-                ticker_df[f"{ticker}_Volatility"] = ticker_df[f"{ticker}_Return"].rolling(window=20).std()
+# Loop pelos tickers
+for ticker in tickers:
+    st.subheader(f"📊 {ticker}")
 
-                # Métricas globais
-                ret_series = ticker_df[f"{ticker}_Return"].dropna()
-                mean_daily = ret_series.mean()
-                annual_return = (1 + mean_daily)**252 - 1
-                annual_vol = ret_series.std() * np.sqrt(252)
-                sharpe = (annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan
+    try:
+        df = corrigir_colunas(data, ticker).dropna()
 
-                # Regressão Linear
-                X = np.arange(len(ticker_df)).reshape(-1, 1)
-                y = ticker_df["Close"].values.reshape(-1, 1)
-                model = LinearRegression()
-                model.fit(X, y)
-                ticker_df["Close_Pred"] = model.predict(X)
+        # Regressão linear simples: dias vs preços de fechamento
+        X = np.arange(len(df)).reshape(-1, 1)
+        y = df["Close"].values
+        model = LinearRegression().fit(X, y)
+        df["Regressão"] = model.predict(X)
 
-                # Métricas de previsão
-                r2 = model.score(X, y)
-                rmse = np.sqrt(mean_squared_error(y, ticker_df["Close_Pred"]))
-                # Corrigir formato de y
-                y_flat = y.flatten()
-                y_pred = ticker_df["Close_Pred"].values.flatten()
-                # Evita divisões por zero e valores ausentes
-                mask = (y_flat != 0) & ~np.isnan(y_flat) & ~np.isnan(y_pred)
-                if mask.sum() > 0:
-                    mape = np.mean(np.abs((y_flat[mask] - y_pred[mask]) / y_flat[mask])) * 100
-                else:
-                    mape = np.nan
-                # Calcular Z-Score
-                df['Z_Score'] = (df['Close'] - df['Close'].mean()) / df['Close'].std()
-                # Calcular média dos Z-Scores
-                z_score = df['Z_Score'].mean()
+        # Cálculo da distância (resíduo) entre preço real e linha de regressão
+        df["Distância"] = df["Close"] - df["Regressão"]
 
-                # Resultados principais
-                st.subheader(f"📈 Dashboard - {ticker}")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Retorno médio diário", f"{mean_daily:.4f}")
-                    st.metric("Volatilidade anualizada", f"{annual_vol:.4f}")
-                    st.metric("Z-Score médio", f"{z_score:.4f}")
-                with col2:
-                    st.metric("Retorno anualizado", f"{annual_return:.4f}")
-                    st.metric("Índice de Sharpe", f"{sharpe:.4f}")
-                    st.metric("R² da regressão", f"{r2:.4f}")
-                with col3:
-                    st.metric("RMSE (erro médio quadrático)", f"{rmse:.4f}")
-                    st.metric("MAPE (%)", f"{mape:.2f}%")
-                
+        # Cálculo do Z-Score
+        df["Z_Score"] = (df["Close"] - df["Close"].mean()) / df["Close"].std()
+        z_score_atual = df["Z_Score"].iloc[-1]
 
-                # Gráfico 1 - Candlestick
-                fig_candle = go.Figure(data=[go.Candlestick(
-                    x=ticker_df.index,
-                    open=ticker_df["Open"],
-                    high=ticker_df["High"],
-                    low=ticker_df["Low"],
-                    close=ticker_df["Close"],
-                    increasing_line_color="green",
-                    decreasing_line_color="red"
-                )])
-                fig_candle.update_layout(
-                    title=f"{ticker} - Candlestick",
-                    xaxis_rangeslider_visible=False,
-                    plot_bgcolor="rgb(20,20,20)",
-                    paper_bgcolor="rgb(20,20,20)",
-                    font=dict(color="white")
-                )
-                st.plotly_chart(fig_candle, use_container_width=True)
+        # Estatísticas básicas
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Preço atual", f"R$ {df['Close'].iloc[-1]:.2f}")
+        col2.metric("Z-Score atual", f"{z_score_atual:.2f}")
+        col3.metric("Distância atual", f"{df['Distância'].iloc[-1]:.2f}")
 
-                # Gráfico 2 - Preço + Regressão Linear
-                fig_reg = go.Figure()
-                fig_reg.add_trace(go.Scatter(
-                    x=ticker_df.index,
-                    y=ticker_df["Close"],
-                    mode="lines",
-                    name="Close Real"
-                ))
-                fig_reg.add_trace(go.Scatter(
-                    x=ticker_df.index,
-                    y=ticker_df["Close_Pred"],
-                    mode="lines",
-                    name="Regressão Linear",
-                    line=dict(dash="dash", color="orange")
-                ))
-                fig_reg.update_layout(
-                    title=f"{ticker} - Preço + Regressão Linear",
-                    plot_bgcolor="rgb(20,20,20)",
-                    paper_bgcolor="rgb(20,20,20)",
-                    font=dict(color="white")
-                )
-                st.plotly_chart(fig_reg, use_container_width=True)
+        # --- Gráfico 1: Preço e Regressão ---
+        fig1 = go.Figure()
+        fig1.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name="Preço Real"))
+        fig1.add_trace(go.Scatter(x=df.index, y=df["Regressão"], mode="lines", name="Linha de Regressão"))
+        fig1.update_layout(
+            title="Evolução do Preço com Linha de Regressão",
+            xaxis_title="Data", yaxis_title="Preço (R$)",
+            template="plotly_dark", hovermode="x unified"
+        )
 
-                # Gráfico 3 - Volatilidade
-                fig_vol = go.Figure()
-                fig_vol.add_trace(go.Scatter(
-                    x=ticker_df.index,
-                    y=ticker_df[f"{ticker}_Volatility"],
-                    mode="lines",
-                    name="Volatilidade (20 dias)"
-                ))
-                fig_vol.update_layout(
-                    title=f"{ticker} - Volatilidade",
-                    plot_bgcolor="rgb(20,20,20)",
-                    paper_bgcolor="rgb(20,20,20)",
-                    font=dict(color="white")
-                )
-                st.plotly_chart(fig_vol, use_container_width=True)
+        # --- Gráfico 2: Variação da distância ---
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=df.index, y=df["Distância"], mode="lines", name="Distância"))
+        fig2.update_layout(
+            title="Variação da Distância entre o Preço e a Regressão",
+            xaxis_title="Data", yaxis_title="Diferença (R$)",
+            template="plotly_dark", hovermode="x unified"
+        )
 
-                # Gráfico 4 - Variação da distância do preço à regressão
-                ticker_df["Deviation_Change"] = ticker_df["Deviation"].diff()
-                fig_dev = go.Figure()
-                fig_dev.add_trace(go.Scatter(
-                    x=ticker_df.index,
-                    y=ticker_df["Deviation_Change"],
-                    mode="lines",
-                    name="Variação do Desvio"
-                ))
-                fig_dev.update_layout(
-                    title=f"{ticker} - Variação da Distância do Preço até a Regressão",
-                    plot_bgcolor="rgb(20,20,20)",
-                    paper_bgcolor="rgb(20,20,20)",
-                    font=dict(color="white")
-                )
-                st.plotly_chart(fig_dev, use_container_width=True)
+        # --- Gráfico 3: Volume ---
+        fig3 = go.Figure()
+        fig3.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Volume"))
+        fig3.update_layout(
+            title="Volume de Negociações",
+            xaxis_title="Data", yaxis_title="Volume",
+            template="plotly_dark", hovermode="x unified"
+        )
 
-                # Junta ao DataFrame final
-                cols_to_add = [col for col in ticker_df.columns if ticker in col or col in ["Close_Pred", "Deviation", "Deviation_Change"]]
-                if final_df.empty:
-                    final_df = ticker_df[cols_to_add].copy()
-                else:
-                    final_df = final_df.join(ticker_df[cols_to_add], how="outer")
+        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig3, use_container_width=True)
 
-            # Mostrar DataFrame final e botão para download
-            st.subheader("📄 Dados finais com cálculos por ticker")
-            st.dataframe(final_df.tail())
-            nome_arquivo = "tickers_dados_compostos.csv"
-            final_df.to_csv(nome_arquivo)
-            st.download_button(
-                label="📥 Baixar CSV",
-                data=final_df.to_csv().encode("utf-8"),
-                file_name=nome_arquivo,
-                mime="text/csv"
-            )
-    else:
-        st.warning("Digite pelo menos um ticker.")
-
-
+    except Exception as e:
+        st.error(f"Erro ao processar {ticker}: {e}")
