@@ -90,7 +90,7 @@ for ticker in tickers:
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
         X = np.arange(len(ticker_df)).reshape(-1, 1)
-        y = ticker_df['Close'].values.reshape(-1, 1)
+        y = df['Close'].values.reshape(-1, 1)
         model = LinearRegression()
         model.fit(X, y)
         n_days = st.number_input("Número de dias para previsão futura",
@@ -99,7 +99,7 @@ for ticker in tickers:
                                  value=5,
                                  step=1
                                 )
-        last_index = len(ticker_df)
+        last_index = len(df)
         future_indices = np.arange(last_index, last_index + n_days).reshape(-1, 1)
         future_pred = model.predict(future_indices)
         future_dates = pd.date_range(start=ticker_df.index[-1] + pd.Timedelta(days=1), periods=n_days)
@@ -189,6 +189,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
