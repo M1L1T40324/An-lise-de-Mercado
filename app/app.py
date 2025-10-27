@@ -102,10 +102,10 @@ for ticker in tickers:
         last_index = len(df)
         future_indices = np.arange(last_index, last_index + n_days).reshape(-1, 1)
         future_pred = model.predict(future_indices)
-        future_dates = pd.date_range(start=ticker_df.index[-1] + pd.Timedelta(days=1), periods=n_days)
+        future_dates = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=n_days)
         future_df = pd.DataFrame({'Close': future_pred.flatten()},
                                  index=future_dates)
-        combined_df = pd.concat([ticker_df[['Close']], future_df])
+        combined_df = pd.concat([df[['Close']], future_df])
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=df.index,
@@ -189,6 +189,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
