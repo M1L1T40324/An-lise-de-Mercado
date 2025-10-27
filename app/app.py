@@ -116,7 +116,7 @@ for ticker in tickers:
             # Atualiza DataFrame para o próximo passo
             new_row = pd.DataFrame({'Close': [pred]})
             df_future = pd.concat([df_future, new_row], ignore_index=True)
-            st.dataframe(df_future.tail(n_days))
+       st.dataframe(df_future.tail(n_days))
 
 
         
@@ -177,6 +177,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
