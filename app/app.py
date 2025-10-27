@@ -20,6 +20,12 @@ periodo = st.selectbox("Período:", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y
 # Baixar dados
 df = yf.download(ticker, period=periodo)
 df.reset_index(inplace=True)
+for ticker in tickers:
+    if len(tickers) > 1:
+        ticker_df = df[ticker].copy()  # pega o bloco do ticker
+    else:
+        ticker_df = df.copy()          # apenas 1 ticker, usa df direto
+
 
 # Verificação
 if df.empty:
@@ -122,4 +128,5 @@ fig_pred.update_layout(template="plotly_dark", height=500)
 st.plotly_chart(fig_pred, use_container_width=True)
 
 st.caption("⚠️ Este modelo é experimental. Não constitui recomendação de investimento.")
+
 
