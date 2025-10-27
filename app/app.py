@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
 
-st.set_page_config(page_title="📊 Market Analysis", layout="wide")
+st.set_page_config(page_title="☝🤓 Market analysis", layout="wide")
 st.title("📊 Downloader de Dados Financeiros + Dashboard com Regressão e Estatísticas")
 
 # Input tickers
@@ -173,3 +173,4 @@ if st.button("Baixar dados"):
                 file_name=nome_arquivo,
                 mime="text/csv"
             )
+
