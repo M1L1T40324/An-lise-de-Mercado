@@ -91,7 +91,7 @@ for ticker in tickers:
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
         n_days = st.text_input("Digite quantos dias no futuro você quer viajar")
         future_preds = []
-        df_future = ticker_df.copy()
+        df_future = df.copy()
         for i in range(n_days):
             last_row = df_future.iloc[-1]
             next_features = pd.DataFrame({
@@ -171,6 +171,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
