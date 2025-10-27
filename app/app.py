@@ -108,8 +108,8 @@ for ticker in tickers:
         combined_df = pd.concat([ticker_df[['Close']], future_df])
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=ticker_df.index,
-            y=ticker_df['Close'],
+            x=df.index,
+            y=df['Close'],
             mode='lines',
             name='Histórico'
         ))
@@ -189,6 +189,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
