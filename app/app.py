@@ -32,7 +32,10 @@ retorno_medio = df["Retorno_Diário"].mean()
 retorno_anual = (1 + retorno_medio) ** 252 - 1
 vol_anual = df["Retorno_Diário"].std() * np.sqrt(252)
 sharpe = (retorno_anual - 0.05) / vol_anual
-z_score = (df["Close"].iloc[-1] - df["Close"].mean()) / df["Close"].std()
+if df["Close"].dropna().empty:
+    z_score = 0.0
+else:
+    z_score = float((df["Close"].iloc[-1] - df["Close"].dropna().mean()) / df["Close"].dropna().std())
 
 # Mostrar métricas
 col1, col2, col3, col4 = st.columns(4)
@@ -118,3 +121,4 @@ fig_pred.update_layout(template="plotly_dark", height=500)
 st.plotly_chart(fig_pred, use_container_width=True)
 
 st.caption("⚠️ Este modelo é experimental. Não constitui recomendação de investimento.")
+
