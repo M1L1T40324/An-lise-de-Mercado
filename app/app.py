@@ -64,11 +64,11 @@ for ticker in tickers:
         # ML
         # Verifica se as colunas existem
         required_features = ['SMA20', 'EMA20', 'Volatility']
-        existing_features = [f for f in required_features if f in ticker_df.columns]
+        existing_features = [f for f in required_features if f in df.columns]
         if len(existing_features) < 1:
             st.warning(f"Não há features suficientes para treinar o modelo de {ticker}.")
         else:
-            df_ml = ticker_df.dropna(subset=existing_features + ['Close'])
+            df_ml = df.dropna(subset=existing_features + ['Close'])
             if df_ml.empty:
                 st.warning(f"Não há dados suficientes após remover NaN para {ticker}.")
             else:
@@ -149,6 +149,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
