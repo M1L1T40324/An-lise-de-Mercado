@@ -62,35 +62,33 @@ for ticker in tickers:
         col6.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
 
         # ML
-        # Verifica se as colunas existem
-        required_features = ['SMA20', 'EMA20', 'Volatility']
-        existing_features = [f for f in required_features if f in df.columns]
-        if len(existing_features) < 1:
-            st.warning(f"Não há features suficientes para treinar o modelo de {ticker}.")
-        else:
-            df_ml = df.dropna(subset=existing_features + ['Close'])
-            if df_ml.empty:
-                st.warning(f"Não há dados suficientes após remover NaN para {ticker}.")
-            else:
-                X = df_ml[existing_features]
-                y = df_ml['Close']
-        # Dividir dados em treino e teste
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-        # Modelo
-        model = RandomForestRegressor(n_estimators=100, random_state=42)
-        model.fit(X_train, y_train)
-        # Previsão
-        y_pred = model.predict(X_test)
+       required_features = ['SMA20', 'EMA20', 'Volatility']
+       existing_features = [f for f in required_features if f in ticker_df.columns]
 
-        # Avaliar
-        mse = mean_squared_error(y_test, y_pred)
-        st.write(f"Erro médio quadrático (MSE): {mse:.4f}")
+       if len(existing_features) < 1:
+           st.warning(f"Não há features suficientes para treinar o modelo de {ticker}.")
+       else:
+           df_ml = df.dropna(subset=existing_features + ['Close'])
+           if df_ml.empty:
+               st.warning(f"Não há dados suficientes após remover NaN para {ticker}.")
+           else:
+               X = df_ml[existing_features]
+               y = df_ml['Close']
+               
+               from sklearn.ensemble import RandomForestRegressor
+               from sklearn.model_selection import train_test_split
+               from sklearn.metrics import mean_squared_error
 
-        # Adicionar coluna de previsão no DataFrame
-        df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
-
-        # Visualizar últimas previsões
-        st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
+               X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+               model = RandomForestRegressor(n_estimators=100, random_state=42)
+               model.fit(X_train, y_train)
+               y_pred = model.predict(X_test)
+               mse = mean_squared_error(y_test, y_pred)
+               st.write(f"Erro médio quadrático (MSE) para {ticker}: {mse:.4f}")
+               df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
+               st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
+               df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
+               st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
         
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
@@ -149,6 +147,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
