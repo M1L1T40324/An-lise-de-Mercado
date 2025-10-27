@@ -14,18 +14,22 @@ st.title("📈 Sistema Inteligente de Análise de Ações")
 st.markdown("Explore indicadores, gráficos e previsões com modelos de machine learning.")
 
 # Entrada do usuário
-ticker = st.text_input("Digite o ticker da ação (ex: PETR4.SA, AAPL):", "AAPL")
+tickers_input = st.text_input("Digite tickers separados por vírgula:")
+tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+
+if st.button("Baixar dados"):
+    if not tickers:
+        st.warning("Digite pelo menos um ticker.")
+    else:
+        for ticker in tickers:
+            st.write(f"Baixando dados de {ticker}")
+
 periodo = st.selectbox("Período:", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y"])
+
 
 # Baixar dados
 df = yf.download(ticker, period=periodo)
 df.reset_index(inplace=True)
-for ticker in tickers:
-    if len(tickers) > 1:
-        ticker_df = df[ticker].copy()  # pega o bloco do ticker
-    else:
-        ticker_df = df.copy()          # apenas 1 ticker, usa df direto
-
 
 # Verificação
 if df.empty:
@@ -128,5 +132,6 @@ fig_pred.update_layout(template="plotly_dark", height=500)
 st.plotly_chart(fig_pred, use_container_width=True)
 
 st.caption("⚠️ Este modelo é experimental. Não constitui recomendação de investimento.")
+
 
 
