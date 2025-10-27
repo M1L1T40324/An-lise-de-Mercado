@@ -55,18 +55,30 @@ def process_stock(ticker, ndays):
         mse = mean_squared_error(y, df["Predicted"])
         st.write(f"📏 **Erro Quadrático Médio (MSE):** {mse:.6f}")
 
-        # Previsão futura
-        last_features = df[features].iloc[-1].values.reshape(1, -1)
+        # Previsão futura com ruído estável
         future_predictions = []
         future_dates = pd.date_range(df.index[-1] + pd.Timedelta(days=1), periods=ndays)
+        last_features = df[features].iloc[-1].values.reshape(1, -1)
 
         current_features = last_features.copy()
+        base_volatility = df["Volatility"].iloc[-1]
+
         for _ in range(ndays):
             scaled = scaler.transform(current_features)
             poly_features = poly.transform(scaled)
             next_price = model.predict(poly_features)[0]
-            future_predictions.append(next_price)
-            current_features = np.array([[next_price, next_price, np.std(future_predictions)]])
+
+            # Adiciona ruído leve com base na volatilidade histórica
+            noise = np.random.normal(0, base_volatility * 0.02)
+            next_price_noisy = next_price + noise
+
+            future_predictions.append(next_price_noisy)
+
+            # Atualiza features mantendo a coerência dimensional
+            sma = (current_features[0, 0] * 19 + next_price_noisy) / 20
+            ema = 0.1 * next_price_noisy + 0.9 * current_features[0, 1]
+            vol = np.std(future_predictions[-20:]) if len(future_predictions) >= 20 else base_volatility
+            current_features = np.array([[sma, ema, vol]])
 
         # Monta DataFrame das previsões futuras
         future_df = pd.DataFrame({"Data": future_dates, "Previsão": future_predictions})
