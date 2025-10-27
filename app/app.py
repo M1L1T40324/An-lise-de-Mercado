@@ -86,7 +86,6 @@ for ticker in tickers:
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         mse = mean_squared_error(y_test, y_pred)**0.5
-        st.write(f"Erro médio quadrático (MSE): {mse:.4f}")
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real Médio ", f"(RMSE): R$ {mse:.4f}")
         # --- Gráfico 1: Candle + Linha de Regressão ---
@@ -146,6 +145,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
