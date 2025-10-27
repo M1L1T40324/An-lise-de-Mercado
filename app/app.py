@@ -1,137 +1,117 @@
+import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
-import streamlit as st
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
-from datetime import date, timedelta
+import numpy as np
 
-st.set_page_config(page_title="Análise de Mercado com IA", layout="wide")
+st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
+st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
 
-st.title("📈 Sistema Inteligente de Análise de Ações")
-st.markdown("Explore indicadores, gráficos e previsões com modelos de machine learning.")
+# Entrada de dados
+tickers = st.text_input("Digite os tickers separados por vírgula:", "PETR4.SA, VALE3.SA, ITUB4.SA")
+tickers = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
-# Entrada do usuário
-tickers_input = st.text_input("Digite tickers separados por vírgula:")
-tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
-
-if st.button("Baixar dados"):
-    if not tickers:
-        st.warning("Digite pelo menos um ticker.")
-    else:
-        for ticker in tickers:
-            st.write(f"Baixando dados de {ticker}")
-
-periodo = st.selectbox("Período:", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y"])
-
+periodo = st.selectbox("Selecione o período:", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"])
+intervalo = st.selectbox("Selecione o intervalo:", ["1d", "1wk", "1mo"])
 
 # Baixar dados
-df = yf.download(ticker, period=periodo)
-df.reset_index(inplace=True)
+data = yf.download(tickers, period=periodo, interval=intervalo, group_by='ticker', auto_adjust=True)
 
-# Verificação
-if df.empty:
-    st.error("Não foi possível carregar os dados. Verifique o ticker.")
-    st.stop()
+def corrigir_colunas(df, ticker):
+    """Corrige colunas quando há MultiIndex (vários tickers)."""
+    if isinstance(df.columns, pd.MultiIndex):
+        df = df[ticker].copy()
+    return df
 
-# ======= Indicadores Financeiros =======
-df["Retorno_Diário"] = df["Close"].pct_change()
-retorno_medio = df["Retorno_Diário"].mean()
-retorno_anual = (1 + retorno_medio) ** 252 - 1
-vol_anual = df["Retorno_Diário"].std() * np.sqrt(252)
-sharpe = (retorno_anual - 0.05) / vol_anual
-if df["Close"].dropna().empty:
-    z_score = 0.0
-else:
-    z_score = float((df["Close"].iloc[-1] - df["Close"].dropna().mean()) / df["Close"].dropna().std())
+for ticker in tickers:
+    st.subheader(f"📈 {ticker}")
 
+    try:
+        df = corrigir_colunas(data, ticker).dropna()
 
-# Mostrar métricas
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("📅 Retorno Médio Diário", f"{retorno_medio*100:.2f}%")
-col2.metric("📈 Retorno Anualizado", f"{retorno_anual*100:.2f}%")
-col3.metric("💥 Volatilidade Anualizada", f"{vol_anual*100:.2f}%")
-col4.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
+        # --- Cálculos Estatísticos ---
+        df["Return"] = df["Close"].pct_change()
+        mean_daily = df["Return"].mean()
+        annual_return = (1 + mean_daily) ** 252 - 1
+        annual_vol = df["Return"].std() * np.sqrt(252)
+        sharpe = (annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan
 
-st.metric("📊 Z-Score Atual", f"{z_score:.2f}")
+        # --- Regressão Linear ---
+        X = np.arange(len(df)).reshape(-1, 1)
+        y = df["Close"].values
+        model = LinearRegression().fit(X, y)
+        df["Regressão"] = model.predict(X)
 
-# ======= Candlestick =======
-st.subheader("Gráfico de Candlestick com Média Móvel")
-fig_candle = go.Figure(data=[go.Candlestick(
-    x=df['Date'], open=df['Open'], high=df['High'],
-    low=df['Low'], close=df['Close'], name='Candlestick'
-)])
-fig_candle.add_trace(go.Scatter(
-    x=df['Date'], y=df['Close'].rolling(window=20).mean(),
-    mode='lines', name='Média Móvel (20 dias)', line=dict(color='orange')
-))
-fig_candle.update_layout(
-    template="plotly_dark", height=500,
-    xaxis_title="Data", yaxis_title="Preço"
-)
-st.plotly_chart(fig_candle, use_container_width=True)
+        # --- Distância e Z-Score ---
+        df["Distância"] = df["Close"] - df["Regressão"]
+        df["Z_Score"] = (df["Close"] - df["Close"].mean()) / df["Close"].std()
 
-# ======= Volume =======
-if periodo in ["1mo", "3mo", "6mo", "1y"]:
-    st.subheader("Volume de Negociações")
-    fig_vol = go.Figure()
-    fig_vol.add_trace(go.Bar(x=df["Date"], y=df["Volume"], name="Volume", marker_color='lightblue'))
-    fig_vol.update_layout(template="plotly_dark", height=300)
-    st.plotly_chart(fig_vol, use_container_width=True)
+        # --- Métricas ---
+        col1, col2, col3 = st.columns(3)
+        col1.metric("💰 Preço atual", f"R$ {df['Close'].iloc[-1]:.2f}")
+        col2.metric("📉 Retorno médio diário", f"{mean_daily:.4%}")
+        col3.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
 
-# ======= Machine Learning =======
-st.subheader("🧠 Previsão de Preços com Machine Learning")
+        col4, col5, col6 = st.columns(3)
+        col4.metric("📊 Volatilidade anualizada", f"{annual_vol:.2%}")
+        col5.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
+        col6.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
 
-# Preparar dados
-df["Dias"] = np.arange(len(df))
-X = df[["Dias"]]
-y = df["Close"]
+        # --- Gráfico 1: Candle + Linha de Regressão ---
+        fig1 = go.Figure()
 
-# Modelos
-model_lr = LinearRegression()
-model_rf = RandomForestRegressor(n_estimators=200, random_state=42)
+        fig1.add_trace(go.Candlestick(
+            x=df.index,
+            open=df["Open"],
+            high=df["High"],
+            low=df["Low"],
+            close=df["Close"],
+            name="Candlestick"
+        ))
 
-model_lr.fit(X, y)
-model_rf.fit(X, y)
+        fig1.add_trace(go.Scatter(
+            x=df.index, y=df["Regressão"],
+            mode="lines", name="Linha de Regressão",
+            line=dict(color="orange", width=2)
+        ))
 
-# Previsões
-dias_futuros = np.arange(len(df), len(df) + 30).reshape(-1, 1)
-pred_lr = model_lr.predict(dias_futuros)
-pred_rf = model_rf.predict(dias_futuros)
+        fig1.update_layout(
+            title="Candlestick com Linha de Regressão",
+            xaxis_title="Data", yaxis_title="Preço (R$)",
+            template="plotly_dark",
+            hovermode="x unified",
+            xaxis_rangeslider_visible=False
+        )
+        st.plotly_chart(fig1, use_container_width=True)
 
-# Avaliação
-y_pred_lr = model_lr.predict(X)
-r2_lr = r2_score(y, y_pred_lr)
-rmse_lr = np.sqrt(mean_squared_error(y, y_pred_lr))
+        # --- Gráfico 2: Variação da Distância ---
+        df["Distância_var"] = df["Distância"].diff()
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(
+            x=df.index, y=df["Distância_var"],
+            mode="lines", name="Variação da Distância"
+        ))
+        fig2.update_layout(
+            title="📏 Variação da Distância entre o Preço e a Linha de Regressão",
+            xaxis_title="Data", yaxis_title="Variação (R$)",
+            template="plotly_dark", hovermode="x unified"
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
-y_pred_rf = model_rf.predict(X)
-r2_rf = r2_score(y, y_pred_rf)
-rmse_rf = np.sqrt(mean_squared_error(y, y_pred_rf))
+        # --- Gráfico 3: Volume (apenas até 1 ano) ---
+        if periodo in ["1mo", "3mo", "6mo", "1y"]:
+            fig3 = go.Figure()
+            fig3.add_trace(go.Bar(
+                x=df.index, y=df["Volume"],
+                name="Volume", marker_color="blue"
+            ))
+            fig3.update_layout(
+                title="📦 Volume de Negociações",
+                xaxis_title="Data", yaxis_title="Volume",
+                template="plotly_dark", hovermode="x unified"
+            )
+            st.plotly_chart(fig3, use_container_width=True)
 
-col1, col2 = st.columns(2)
-col1.metric("R² Linear Regression", f"{r2_lr:.3f}")
-col1.metric("RMSE Linear", f"{rmse_lr:.3f}")
-col2.metric("R² Random Forest", f"{r2_rf:.3f}")
-col2.metric("RMSE Random Forest", f"{rmse_rf:.3f}")
-
-# ======= Gráfico Previsões =======
-st.subheader("🔮 Preço Real vs Previsão (30 dias)")
-fig_pred = go.Figure()
-fig_pred.add_trace(go.Scatter(x=df["Date"], y=df["Close"], mode="lines", name="Preço Real"))
-fig_pred.add_trace(go.Scatter(
-    x=pd.date_range(df["Date"].iloc[-1], periods=31, freq="D")[1:], 
-    y=pred_lr, mode="lines", name="Regressão Linear", line=dict(color="orange")
-))
-fig_pred.add_trace(go.Scatter(
-    x=pd.date_range(df["Date"].iloc[-1], periods=31, freq="D")[1:], 
-    y=pred_rf, mode="lines", name="Random Forest", line=dict(color="green")
-))
-fig_pred.update_layout(template="plotly_dark", height=500)
-st.plotly_chart(fig_pred, use_container_width=True)
-
-st.caption("⚠️ Este modelo é experimental. Não constitui recomendação de investimento.")
-
-
-
+    except Exception as e:
+        st.error(f"Erro ao processar {ticker}: {e}")
