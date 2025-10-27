@@ -4,6 +4,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
 import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
 
 st.set_page_config(page_title="☝🤓 Market Analysis", layout="wide")
 st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
@@ -58,6 +61,29 @@ for ticker in tickers:
         col5.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
         col6.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
 
+        # ML
+        features = ['SMA20', 'EMA20', 'Volatility']
+        df_ml = ticker_df.dropna(subset=features + ['Close'])  # remove linhas com NaN
+        X = df_ml[features]
+        y = df_ml['Close']
+        # Dividir dados em treino e teste
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+        # Modelo
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        model.fit(X_train, y_train)
+        # Previsão
+        y_pred = model.predict(X_test)
+
+        # Avaliar
+        mse = mean_squared_error(y_test, y_pred)
+        st.write(f"Erro médio quadrático (MSE): {mse:.4f}")
+
+        # Adicionar coluna de previsão no DataFrame
+        df_ml.loc[X_test.index, 'Pred_Close'] = y_pred
+
+        # Visualizar últimas previsões
+        st.dataframe(df_ml[['Close', 'Pred_Close']].tail(10))
+        
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
 
@@ -115,4 +141,5 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
