@@ -84,9 +84,11 @@ for ticker in tickers:
         model = RandomForestRegressor(n_estimators=100, random_state=42)
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
-        mse = mean_squared_error(y_test, y_pred)**0.5
+        rmse = mean_squared_error(y_test, y_pred)**0.5
+        mse = mean_squared_error(y_test, y_pred)
         df.loc[X_test.index, 'Pred_Close'] = y_pred
-        col1.metric("📉 Erro Real Médio ", f"(RMSE): R$ {mse:.4f}")
+        col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.4f}")
+        col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.4f}")
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
 
@@ -144,6 +146,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
