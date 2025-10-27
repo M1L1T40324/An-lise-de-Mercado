@@ -98,6 +98,7 @@ for ticker in tickers:
                                  max_value=365,
                                  value=5,
                                  step=1
+                                 key=f"n_days_{ticker}"
                                 )
         last_index = len(df)
         future_indices = np.arange(last_index, last_index + n_days).reshape(-1, 1)
@@ -189,6 +190,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
