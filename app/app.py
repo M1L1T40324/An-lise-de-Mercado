@@ -66,7 +66,10 @@ if st.button("Baixar dados"):
                     mape = np.mean(np.abs((y_flat[mask] - y_pred[mask]) / y_flat[mask])) * 100
                 else:
                     mape = np.nan
-
+                # Calcular Z-Score
+                df['Z_Score'] = (df['Close'] - df['Close'].mean()) / df['Close'].std()
+                # Calcular média dos Z-Scores
+                z_score = df['Z_Score'].mean()
 
                 # Resultados principais
                 st.subheader(f"📈 Dashboard - {ticker}")
@@ -82,6 +85,7 @@ if st.button("Baixar dados"):
                 with col3:
                     st.metric("RMSE (erro médio quadrático)", f"{rmse:.4f}")
                     st.metric("MAPE (%)", f"{mape:.2f}%")
+                
 
                 # Gráfico 1 - Candlestick
                 fig_candle = go.Figure(data=[go.Candlestick(
@@ -178,4 +182,5 @@ if st.button("Baixar dados"):
             )
     else:
         st.warning("Digite pelo menos um ticker.")
+
 
