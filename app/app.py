@@ -64,6 +64,14 @@ for ticker in tickers:
         existing_features = [f for f in required_features if f in df.columns]
 
         df['Return'] = df['Close'].pct_change()
+        df["LogReturn"] = np.log(df["Close"] / df["Close"].shift(1))
+        df["SMA20"] = df["Close"].rolling(20).mean()
+        df["SMA50"] = df["Close"].rolling(50).mean()
+        df["EMA20"] = df["Close"].ewm(span=20).mean()
+        df["RSI"] = 100 - (100 / (1 + df["Return"].clip(lower=0).rolling(14).mean() / 
+                                  (-df["Return"].clip(upper=0).rolling(14).mean()).abs()))
+        df["Volatility"] = df["Return"].rolling(20).std()
+        df.dropna(inplace=True)
         df['SMA5'] = df['Close'].rolling(5).mean()
         df['SMA10'] = df['Close'].rolling(10).mean()
         df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
@@ -74,18 +82,37 @@ for ticker in tickers:
         df['Close_minus_SMA10'] = df['Close'] - df['SMA10']
         df.fillna(method='bfill', inplace=True)
         features = ['Return', 'SMA5', 'SMA10', 'EMA5', 'EMA10',
-            'Volatility5', 'Volatility10',
-            'Close_minus_SMA5', 'Close_minus_SMA10']
-        X = df[features]
-        y = df['Close']
-        X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, shuffle=False
-)
-        model = RandomForestRegressor(n_estimators=100, random_state=42)
+                    'Volatility5', 'Volatility10',
+                    'Close_minus_SMA5', 'Close_minus_SMA10',
+                    "SMA20", "SMA50", "EMA20", "RSI", "Volatility",
+                    "LogReturn"
+                   ]
+        target = "Close"
+        y = df[target]
+        # Normalizar
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        train_size = int(len(X_scaled) * 0.8)
+        X_train, X_test = X_scaled[:train_size], X_scaled[train_size:]
+        y_train, y_test = y[:train_size], y[train_size:]
+        model = RandomForestRegressor(n_estimators=200, random_state=42)
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         rmse = mean_squared_error(y_test, y_pred)**0.5
         mse = mean_squared_error(y_test, y_pred)
+        last_row = df.iloc[-1][features].values.reshape(1, -1)
+        last_scaled = scaler.transform(last_row)
+        future_preds = []
+        for _ in range(ndays):
+            next_pred = model.predict(current_input)[0]
+            future_preds.append(next_pred)
+            # Atualiza inputs com valor previsto (simulando sequência temporal)
+            current_input = np.roll(current_input, -1)
+            current_input[0, -1] = (next_pred - df["Close"].iloc[-1]) / df["Close"].iloc[-1]
+
+        future_dates = pd.date_range(df.index[-1], periods=ndays+1, freq="B")[1:]
+        df_future = pd.DataFrame({"Date": future_dates, "Predicted_Close": future_preds})
+        st.line_chart(df_future.set_index("Date"))
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
@@ -190,6 +217,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
