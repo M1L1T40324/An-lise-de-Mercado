@@ -89,7 +89,13 @@ for ticker in tickers:
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
-        n_days = st.text_input("Digite quantos dias no futuro você quer viajar")
+        n_days = st.number_input(
+            label="Número de dias para previsão",
+            min_value=1,     # mínimo 1 dia
+            max_value=365,   # máximo 1 ano
+            value=5,         # valor padrão
+            step=1
+        )
         future_preds = []
         df_future = df.copy()
         for i in range(n_days):
@@ -171,6 +177,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
