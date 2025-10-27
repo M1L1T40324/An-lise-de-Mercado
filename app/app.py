@@ -89,16 +89,7 @@ for ticker in tickers:
         df.loc[X_test.index, 'Pred_Close'] = y_pred
         col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
         col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
-        import streamlit as st
-import numpy as np
-import pandas as pd
-from sklearn.linear_model import LinearRegression
-import plotly.graph_objects as go
 
-# Exemplo: ticker_df já existe com os dados históricos
-# ticker_df['Close'] contém o preço real
-
-# Treina modelo Linear Regression nos dados históricos
 X = np.arange(len(ticker_df)).reshape(-1, 1)
 y = ticker_df['Close'].values.reshape(-1, 1)
 model = LinearRegression()
@@ -209,6 +200,7 @@ st.plotly_chart(fig, use_container_width=True)
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
