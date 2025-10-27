@@ -6,7 +6,7 @@ from sklearn.linear_model import LinearRegression
 import numpy as np
 
 st.set_page_config(page_title="Análise de Mercado", layout="wide")
-st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
+st.title("☝🤓 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
 
 # Entrada de dados
 tickers = st.text_input("Digite os tickers separados por vírgula:", "PETR4.SA, VALE3.SA, ITUB4.SA")
@@ -115,3 +115,4 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
