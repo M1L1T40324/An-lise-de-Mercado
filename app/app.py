@@ -51,16 +51,15 @@ for ticker in tickers:
         df["Z_Score"] = (df["Close"] - df["Close"].mean()) / df["Close"].std()
 
         # --- Métricas ---
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(3)
         col1.metric("💰 Preço atual", f"R$ {df['Close'].iloc[-1]:.2f}")
-        
         col2.metric("📉 Retorno médio diário", f"{mean_daily:.4%}")
-        col3.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
+        col2.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
 
-        col4, col5, col6 = st.columns(3)
+        col3, col4 = st.columns(3)
         col4.metric("📊 Volatilidade anualizada", f"{annual_vol:.2%}")
-        col5.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
-        col6.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
+        col4.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
+        col5.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
         required_features = ['SMA20', 'EMA20', 'Volatility']
         existing_features = [f for f in required_features if f in df.columns]
 
@@ -87,7 +86,7 @@ for ticker in tickers:
         y_pred = model.predict(X_test)
         mse = mean_squared_error(y_test, y_pred)**0.5
         df.loc[X_test.index, 'Pred_Close'] = y_pred
-        col4.metric("📉 Erro Real Médio ", f"(RMSE): R$ {mse:.4f}")
+        col1.metric("📉 Erro Real Médio ", f"(RMSE): R$ {mse:.4f}")
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
 
@@ -145,6 +144,7 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
