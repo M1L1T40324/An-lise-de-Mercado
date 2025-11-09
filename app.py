@@ -1,10 +1,4 @@
-# app.py
-"""
-Investidor App Inteligente (Streamlit)
-- Salve como app.py
-- Execute: streamlit run app.py
-Dependências: streamlit pandas numpy yfinance plotly scikit-learn
-"""
+
 
 import streamlit as st
 import yfinance as yf
@@ -16,9 +10,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="Investidor Inteligente", layout="wide", page_icon="💹")
 
-# -------------------------
 # UTILITÁRIOS / INDICADORES
-# -------------------------
 def calcula_indicadores(df):
     df = df.copy()
     df['Retorno'] = df['Adj Close'].pct_change()
@@ -104,9 +96,7 @@ def sinal_inteligente(df):
     sinais = {'RSI': rsi, 'MACD': macd, 'Signal': signal, 'Drawdown30': drawdown}
     return recomendacao, motivos_join(motivos), sinais
 
-# -------------------------
 # ESTADO DO APP (session_state)
-# -------------------------
 if 'positions' not in st.session_state:
     st.session_state['positions'] = {}  # ticker -> {buy_price, shares, cost_basis, capital_allocated}
 if 'reserve' not in st.session_state:
@@ -114,17 +104,13 @@ if 'reserve' not in st.session_state:
 if 'trade_history' not in st.session_state:
     st.session_state['trade_history'] = []
 
-# -------------------------
 # SIDEBAR - CONFIGURAÇÕES
-# -------------------------
 st.sidebar.title("Configurações")
 tickers_input = st.sidebar.text_input("Tickers (ex: GMAT3.SA,MGLU3.SA,LREN3.SA,VVAR3.SA)")
 capital_total = st.sidebar.number_input("Capital Total (R$)", min_value=1.0, value=1000.0, step=100.0)
 btn_init = st.sidebar.button("Inicializar carteira sugerida (simulação)")
 
-# -------------------------
 # FUNÇÃO: inicializar carteira simulada
-# -------------------------
 def init_portfolio(resultados):
     """
     Usa preço atual como preço de compra e capital alocado para criar posição simulada.
@@ -153,9 +139,7 @@ def init_portfolio(resultados):
                 'capital_allocated': capital_alocado
             }
 
-# -------------------------
 # COLETAR DADOS E MONTAR RESULTADOS
-# -------------------------
 st.title("💹 Investidor Inteligente — Simulação de Gestão de Lucros")
 if not tickers_input:
     st.info("Digite tickers na barra lateral (ex: GMAT3.SA,MGLU3.SA,LREN3.SA,VVAR3.SA) e clique em 'Inicializar carteira sugerida' ou aguarde a análise.")
@@ -194,14 +178,10 @@ else:
         init_portfolio(resultados)
         st.success("Carteira inicializada (simulação). Verifique 'Carteira & Ações'.")
 
-    # -------------------------
     # TABS
-    # -------------------------
     tab1, tab2, tab3, tab4 = st.tabs(["Análise", "Dashboard", "Projeção", "Carteira & Ações"])
 
-    # -------------------------
     # TAB 1: ANÁLISE E RECOMENDAÇÕES
-    # -------------------------
     with tab1:
         st.header("Análises e Recomendações Inteligentes")
         st.write("Sinais técnicos: RSI, MACD, drawdown (30d). Recomendações geradas por regras interpretáveis.")
@@ -289,9 +269,7 @@ else:
                 st.info("Decisão: manter posição simulada (nenhuma ação).")
             st.markdown("---")
 
-    # -------------------------
     # TAB 2: DASHBOARD (gráficos interativos)
-    # -------------------------
     with tab2:
         st.header("Dashboard — Preço, Médias e Projeção")
         colors = ["#3498db", "#2ecc71", "#9b59b6", "#e67e22"]
@@ -314,10 +292,8 @@ else:
             fig.update_layout(template='plotly_dark', height=360, margin=dict(l=10, r=10, t=30, b=10))
             st.subheader(res['Ação'])
             st.plotly_chart(fig, use_container_width=True)
-
-    # -------------------------
+            
     # TAB 3: PROJEÇÃO
-    # -------------------------
     with tab3:
         st.header("Projeção de Capital (estado atual)")
         # Valor atual da carteira
@@ -373,9 +349,7 @@ else:
                     projected_asset = r['Capital_Alocado']
                 st.write(f"   • {p} meses: R$ {projected_asset:,.2f}")
 
-    # -------------------------
     # TAB 4: CARTEIRA, RESERVA E HISTÓRICO
-    # -------------------------
     with tab4:
         st.header("Carteira Simulada — Posições Atuais & Reserva")
         st.subheader("Posições simuladas")
@@ -444,12 +418,10 @@ else:
                 st.session_state['reserve'] = 0.0
                 st.success("Reserva sacada (simulada).")
 
-# -------------------------
-# RODAPÉ / AVISO
-# -------------------------
 st.markdown("---")
 st.caption(
     "⚠️ Este sistema é uma SIMULAÇÃO educativa. Não envia ordens para corretoras. "
     "Use as recomendações como apoio à decisão e confirme operações na sua corretora. "
     "A lógica de sinais é heurística: combine com análise fundamentalista e gestão de risco."
 )
+
