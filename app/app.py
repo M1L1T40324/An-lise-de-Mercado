@@ -105,7 +105,25 @@ if st.button("Simular Operação"):
     resultado = simular_swingtrade(sim_ticker, quantidade, dias_hold)
     if resultado:
         st.subheader("Resultado da Simulação")
-        st.write(pd.DataFrame([resultado]))
+        resultado = simular_swing(ticker, quantidade, dias_hold)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Preço de Entrada", f"R$ {resultado['Preço Entrada']}")
+        col2.metric("Preço de Saída (Simulado)", f"R$ {resultado['Preço Saída (Simulado)']}")
+        col3.metric("Quantidade", resultado["Qtd"])
+        col4, col5 = st.columns(2)
+        lucro = resultado["Lucro Líquido (R$)"]
+        retorno_pct = resultado["Retorno (%)"]
+        col4.metric(
+            "Lucro Líquido",
+            f"R$ {lucro:,.2f}",
+            f"{retorno_pct:.2f}%"
+        )
+        col5.metric(
+            "Lucro Bruto",
+            f"R$ {resultado['Lucro Bruto (R$)']:,.2f}"
+        )
+
     else:
         st.warning("Histórico insuficiente para simular esse prazo.")
+
 
