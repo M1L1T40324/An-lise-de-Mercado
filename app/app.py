@@ -8,6 +8,27 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
+st.sidebar.header("🔍 Monitoramento Automático")
+
+ticker_input = st.sidebar.text_input("Ticker (ex: VALE3.SA)")
+alvo_alta = st.sidebar.number_input("Alerta de ALTA acima de:", min_value=0.0, step=0.1)
+alvo_baixa = st.sidebar.number_input("Alerta de QUEDA abaixo de:", min_value=0.0, step=0.1)
+email_dest = st.sidebar.text_input("Email para alerta:")
+
+if st.sidebar.button("Adicionar ao Monitoramento"):
+    novo = pd.DataFrame([[ticker_input, alvo_alta, alvo_baixa, email_dest]],
+                        columns=["ticker","alvo_alta","alvo_baixa","email"])
+
+    try:
+        df = pd.read_csv("watchlist.csv")
+        df = pd.concat([df, novo], ignore_index=True)
+    except:
+        df = novo
+    
+    df.to_csv("watchlist.csv", index=False)
+    st.sidebar.success(f"{ticker_input} adicionado ao monitoramento!")
+
+
 st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
 st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
 
@@ -190,4 +211,5 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
