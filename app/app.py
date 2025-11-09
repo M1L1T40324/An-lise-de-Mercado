@@ -9,7 +9,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
-import ta
+
 
 st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
 st.title("📊 AI Market Analysis – Seleção e Simulação de Swing Trade")
@@ -108,3 +108,4 @@ if st.button("Simular Operação"):
         st.write(pd.DataFrame([resultado]))
     else:
         st.warning("Histórico insuficiente para simular esse prazo.")
+
