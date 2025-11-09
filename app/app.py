@@ -38,7 +38,7 @@ for ticker in tickers:
         mean_daily = df["Return"].mean()
         annual_return = (1 + mean_daily) ** 252 - 1
         annual_vol = df["Return"].std() * np.sqrt(252)
-        sharpe = (annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan)
+        sharpe = ((annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan)
 
         # --- Regressão Linear ---
         X = np.arange(len(df)).reshape(-1, 1)
@@ -191,4 +191,5 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
