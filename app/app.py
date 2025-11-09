@@ -12,7 +12,7 @@ st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
 st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
 
 # Entrada de dados
-tickers = st.text_input("Digite os tickers separados por vírgula:", "PETR4.SA, VALE3.SA, ITUB4.SA")
+tickers = st.text_input("Digite os tickers separados por vírgula:", "BEEF3.SA")
 tickers = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
 periodo = st.selectbox("Selecione o período:", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"])
@@ -190,3 +190,4 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
