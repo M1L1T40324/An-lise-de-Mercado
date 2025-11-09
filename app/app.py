@@ -1,229 +1,110 @@
+# Versão refatorada com seleção de swing trade e simulação
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
-import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+import ta
 
 st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
-st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
+st.title("📊 AI Market Analysis – Seleção e Simulação de Swing Trade")
 
-# Entrada de dados
+# --- Entrada de Dados ---
 tickers = st.text_input("Digite os tickers separados por vírgula:", "PETR4.SA, VALE3.SA, ITUB4.SA")
 tickers = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
 periodo = st.selectbox("Selecione o período:", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"])
 intervalo = st.selectbox("Selecione o intervalo:", ["1d", "1wk", "1mo"])
 
-# Baixar dados
 data = yf.download(tickers, period=periodo, interval=intervalo, group_by='ticker', auto_adjust=True)
 
+# --- Função para corrigir colunas quando multi-ticker ---
 def corrigir_colunas(df, ticker):
-    """Corrige colunas quando há MultiIndex (vários tickers)."""
     if isinstance(df.columns, pd.MultiIndex):
         df = df[ticker].copy()
     return df
 
-for ticker in tickers:
-    st.subheader(f"📈 {ticker}")
+# --- Função Seleção de Swing Trade ---
+def selecionar_swingtrade(tickers):
+    candidatos = []
+    for t in tickers:
+        try:
+            df = yf.download(t, period="60d", interval="1d")
+            df.dropna(inplace=True)
 
-    try:
-        df = corrigir_colunas(data, ticker).dropna()
+            df["MM20"] = df["Close"].rolling(20).mean()
+            df["MM50"] = df["Close"].rolling(50).mean()
+            df["RSI"] = ta.momentum.RSIIndicator(df["Close"]).rsi()
+            df["Vol_Med"] = df["Volume"].rolling(20).mean()
 
-        # --- Cálculos Estatísticos ---
-        df["Return"] = df["Close"].pct_change()
-        mean_daily = df["Return"].mean()
-        annual_return = (1 + mean_daily) ** 252 - 1
-        annual_vol = df["Return"].std() * np.sqrt(252)
-        sharpe = (annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan
+            atual = df.iloc[-1]
 
-        # --- Regressão Linear ---
-        X = np.arange(len(df)).reshape(-1, 1)
-        y = df["Close"].values
-        model = LinearRegression().fit(X, y)
-        df["Regressão"] = model.predict(X)
+            cond_tendencia = atual["MM20"] > atual["MM50"]
+            cond_pullback = abs(atual["Close"] - atual["MM20"]) / atual["MM20"] <= 0.02
+            cond_rsi = 45 <= atual["RSI"] <= 60
+            cond_volume = atual["Volume"] >= atual["Vol_Med"]
 
-        # --- Distância e Z-Score ---
-        df["Distância"] = df["Close"] - df["Regressão"]
-        df["Z_Score"] = (df["Close"] - df["Close"].mean()) / df["Close"].std()
+            if cond_tendencia and cond_pullback and cond_rsi and cond_volume:
+                candidatos.append((t, atual["Close"], atual["RSI"]))
+        except:
+            pass
 
-        # --- Métricas ---
-        col1, col2 = st.columns(2)
-        col1.metric("💰 Preço atual", f"R$ {df['Close'].iloc[-1]:.2f}")
-        col2.metric("📉 Retorno médio diário", f"{mean_daily:.4%}")
-        col2.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
+    candidatos = sorted(candidatos, key=lambda x: x[2])
+    return candidatos
 
-        col3, col4 = st.columns(2)
-        col1.metric("📊 Volatilidade anualizada", f"{annual_vol:.2%}")
-        col2.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
-        col2.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
-        required_features = ['SMA20', 'EMA20', 'Volatility']
-        existing_features = [f for f in required_features if f in df.columns]
-        
-        df['Return'] = df['Close'].pct_change()
-        df['SMA5'] = df['Close'].rolling(5).mean()
-        df['SMA10'] = df['Close'].rolling(10).mean()
-        df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
-        df['EMA10'] = df['Close'].ewm(span=10, adjust=False).mean()
-        df['Volatility5'] = df['Return'].rolling(5).std()
-        df['Volatility10'] = df['Return'].rolling(10).std()
-        df['Close_minus_SMA5'] = df['Close'] - df['SMA5']
-        df['Close_minus_SMA10'] = df['Close'] - df['SMA10']
-        df.fillna(method='bfill', inplace=True)
-        features = ['Return', 'SMA5', 'SMA10', 'EMA5', 'EMA10',
-            'Volatility5', 'Volatility10',
-            'Close_minus_SMA5', 'Close_minus_SMA10']
-        X = df[features]
-        y = df['Close']
-        X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, shuffle=False
-)
-        model = RandomForestRegressor(n_estimators=100, random_state=42)
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        rmse = mean_squared_error(y_test, y_pred)**0.5
-        mse = mean_squared_error(y_test, y_pred)
-        df.loc[X_test.index, 'Pred_Close'] = y_pred
-        col1.metric("📉 Erro Real do Modelo ", f"(RMSE): R$ {rmse:.2f}")
-        col1.metric("📉 Erro Médio do Modelo ", f"(MSE): R$ {mse:.2f}")
-        X = np.arange(len(df)).reshape(-1, 1)
-        y = df['Close'].values.reshape(-1, 1)
-        model = LinearRegression()
-        model.fit(X, y)
-        n_days = st.number_input("Quantos dias você quer viajar no futuro? 🤖🔮",
-                                 min_value=1,
-                                 max_value=365,
-                                 value=5,
-                                 step=1,
-                                 key=f"n_days_{ticker}"
-                                )
-        last_index = len(df)
-        future_indices = np.arange(last_index, last_index + n_days).reshape(-1, 1)
-        future_pred = model.predict(future_indices)
-        future_dates = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=n_days)
-        future_df = pd.DataFrame({'Close': future_pred.flatten()},
-                                 index=future_dates)
-        combined_df = pd.concat([df[['Close']], future_df])
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df.index,
-            y=df['Close'],
-            mode='lines',
-            name='Histórico'
-        ))
-        fig.add_trace(go.Scatter(
-            x=future_df.index,
-            y=future_df['Close'],
-            mode='lines+markers',
-            name='Previsão Futura',
-            line=dict(dash='dash', color='orange')
-        ))
-        fig.update_layout(
+st.header("🎯 Seleção Automática de Swing Trade")
+if st.button("Selecionar oportunidades agora"):
+    resultado = selecionar_swingtrade(tickers)
+    if resultado:
+        st.success("Tickers com setup favorável detectados:")
+        st.dataframe(pd.DataFrame(resultado, columns=["Ticker", "Preço Atual", "RSI"]))
+    else:
+        st.warning("Nenhum setup ideal encontrado hoje.")
 
-            title="Histórico + Previsão Futura",
-            xaxis_title="Data",
-            yaxis_title="Preço",
-            plot_bgcolor='rgb(20,20,20)',
-            paper_bgcolor='rgb(20,20,20)',
-            font=dict(color='white')
-        )
-        st.plotly_chart(fig, use_container_width=True)
+# --- Função Simulação Swing Trade ---
+def simular_swingtrade(ticker, quantidade, dias_hold):
+    df = yf.download(ticker, period="120d", interval="1d")
+    df.dropna(inplace=True)
 
-         
-        # --- Gráfico 1: Candle + Linha de Regressão ---
-        fig1 = go.Figure()
+    preco_entrada = df["Close"].iloc[-1]
+    indice_saida = len(df) - 1 - dias_hold
+    if indice_saida < 0:
+        return None
 
-        fig1.add_trace(go.Candlestick(
-            x=df.index,
-            open=df["Open"],
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
-            name="Candlestick"
-        ))
+    preco_saida = df["Close"].iloc[indice_saida]
 
-        fig1.add_trace(go.Scatter(
-            x=df.index, y=df["Regressão"],
-            mode="lines", name="Linha de Regressão",
-            line=dict(color="orange", width=2)
-        ))
+    lucro_bruto = (preco_saida - preco_entrada) * quantidade
+    valor_venda = preco_saida * quantidade
+    taxa_b3 = valor_venda * 0.0003
+    corretagem = 0
 
-        fig1.update_layout(
-            title="Candlestick com Linha de Regressão",
-            xaxis_title="Data", yaxis_title="Preço (R$)",
-            template="plotly_dark",
-            hovermode="x unified",
-            xaxis_rangeslider_visible=False
-        )
-        st.plotly_chart(fig1, use_container_width=True)
+    lucro_liquido = lucro_bruto - taxa_b3 - corretagem
+    retorno_pct = (preco_saida / preco_entrada - 1) * 100
 
-        # --- Gráfico 2: Variação da Distância ---
-        df["Distância_var"] = df["Distância"].diff()
-        fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(
-            x=df.index, y=df["Distância_var"],
-            mode="lines", name="Variação da Distância"
-        ))
-        fig2.update_layout(
-            title="📏 Variação da Distância entre o Preço e a Linha de Regressão",
-            xaxis_title="Data", yaxis_title="Variação (R$)",
-            template="plotly_dark", hovermode="x unified"
-        )
-        st.plotly_chart(fig2, use_container_width=True)
+    return {
+        "Ticker": ticker,
+        "Preço Entrada": round(preco_entrada, 2),
+        "Preço Saída (Simulado)": round(preco_saida, 2),
+        "Qtd": quantidade,
+        "Lucro Bruto (R$)": round(lucro_bruto, 2),
+        "Lucro Líquido (R$)": round(lucro_liquido, 2),
+        "Retorno (%)": round(retorno_pct, 2)
+    }
 
-        # --- Gráfico 3: Volume (apenas até 1 ano) ---
-        if periodo in ["1mo", "3mo", "6mo", "1y"]:
-            fig3 = go.Figure()
-            fig3.add_trace(go.Bar(
-                x=df.index, y=df["Volume"],
-                name="Volume", marker_color="blue"
-            ))
-            fig3.update_layout(
-                title="📦 Volume de Negociações",
-                xaxis_title="Data", yaxis_title="Volume",
-                template="plotly_dark", hovermode="x unified"
-            )
-            st.plotly_chart(fig3, use_container_width=True)
+st.header("💸 Simulação de Operação (Swing Trade)")
+sim_ticker = st.selectbox("Escolha um Ticker para simular", tickers)
+quantidade = st.number_input("Quantidade de Ações", min_value=1, value=100)
+dias_hold = st.slider("Dias até a Venda (Hold)", min_value=1, max_value=20, value=5)
 
-    except Exception as e:
-        st.error(f"Erro ao processar {ticker}: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+if st.button("Simular Operação"):
+    resultado = simular_swingtrade(sim_ticker, quantidade, dias_hold)
+    if resultado:
+        st.subheader("Resultado da Simulação")
+        st.write(pd.DataFrame([resultado]))
+    else:
+        st.warning("Histórico insuficiente para simular esse prazo.")
