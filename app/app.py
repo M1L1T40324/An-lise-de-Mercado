@@ -7,6 +7,23 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+import smtplib
+from email.mime.text import MIMEText
+
+EMAIL_REMETENTE = "brandpeterr@gmail.com"
+SENHA_EMAIL = "ishk nagl dgxu mmar"  # precisa ser senha de app do Gmail
+
+def enviar_email(destinatario, assunto, mensagem):
+    msg = MIMEText(mensagem)
+    msg["Subject"] = assunto
+    msg["From"] = EMAIL_REMETENTE
+    msg["To"] = destinatario
+
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(EMAIL_REMETENTE, SENHA_EMAIL)
+        server.send_message(msg)
+
 
 st.sidebar.header("🔍 Monitoramento Automático")
 
@@ -211,5 +228,6 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
