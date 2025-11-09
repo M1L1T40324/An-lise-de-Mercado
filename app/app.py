@@ -9,6 +9,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 import smtplib
 from email.mime.text import MIMEText
+import threading
+import time
 
 EMAIL_REMETENTE = "brandpeterr@gmail.com"
 SENHA_EMAIL = "ishk nagl dgxu mmar"  # precisa ser senha de app do Gmail
@@ -225,9 +227,27 @@ for ticker in tickers:
                 template="plotly_dark", hovermode="x unified"
             )
             st.plotly_chart(fig3, use_container_width=True)
-
+            def sentinela():
+                while True:
+                    try:
+                        df = pd.read_csv("watchlist.csv")
+                        for _, row in df.iterrows():
+                            ticker = row["ticker"]
+                            preco = yf.Ticker(ticker).history(period="1m")["Close"][-1]
+                            if preco >= row["alvo_alta"]:
+                                enviar_email(row["email"], f"📈 ALTA: {ticker}", f"Preço atual: {preco}")
+                                if preco <= row["alvo_baixa"]:
+                                    enviar_email(row["email"], f"📉 BAIXA: {ticker}", f"Preço atual: {preco}")
+                    except Exception as e:
+                        print("Erro no monitoramento:", e)
+                        time.sleep(300)  # 5 minutos
+                        # Inicia o sentinela apenas uma vez
+            if "sentinela_rodando" not in st.session_state:
+                threading.Thread(target=sentinela, daemon=True).start()
+                st.session_state["sentinela_rodando"] = True
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
