@@ -94,7 +94,7 @@ for ticker in tickers:
         model = LinearRegression()
         model.fit(X, y)
         n_days = st.number_input("Número de dias para previsão futura",)
-        n_days = st.number_input("Quantos dias você quer viajar no futuro? 🤖🔮",)
+        n_days = st.number_input("Quantos dias você quer viajar no futuro? 🤖🔮",
                                  min_value=1,
                                  max_value=365,
                                  value=5,
@@ -191,5 +191,6 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
