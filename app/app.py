@@ -13,19 +13,19 @@ import threading
 import time
 
 st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
-st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
+st.title("📊 Dashboard de ativos para tomada de decisão, com regressão e outras probabilidades 🎲")
 
 # Entrada de dados
 tickers = st.text_input("Digite os tickers separados por vírgula:", "BEEF3.SA")
 tickers = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
-periodo = st.selectbox("Selecione o período:", ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"])
+periodo = st.selectbox("Selecione o período:", ["6mo", "1y", "2y", "5y", "10y", "max"])
 intervalo = st.selectbox("Selecione o intervalo:", ["1d", "1wk", "1mo"])
 
 # Baixar dados
 data = yf.download(tickers, period=periodo, interval=intervalo, group_by='ticker', auto_adjust=True)
 
-def prob_mc_tp_before_sl(df, tp_price, sl_price, horizon_days=5, n_sims=20000):
+def prob_mc_tp_before_sl(df, tp_price, sl_price, horizon_days=5, n_sims=50000):
     """
     Probabilidade incondicional de bater TP antes de SL dentro de N dias.
     Se nenhum for atingido, conta como 0.
@@ -273,6 +273,7 @@ for ticker in tickers:
             
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
