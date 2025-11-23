@@ -12,42 +12,6 @@ from email.mime.text import MIMEText
 import threading
 import time
 
-EMAIL_REMETENTE = "brandpeterr@gmail.com"
-SENHA_EMAIL = "ishk nagl dgxu mmar"  # precisa ser senha de app do Gmail
-
-def enviar_email(destinatario, assunto, mensagem):
-    msg = MIMEText(mensagem)
-    msg["Subject"] = assunto
-    msg["From"] = EMAIL_REMETENTE
-    msg["To"] = destinatario
-
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls()
-        server.login(EMAIL_REMETENTE, SENHA_EMAIL)
-        server.send_message(msg)
-
-
-st.sidebar.header("🔍 Monitoramento Automático")
-
-ticker_input = st.sidebar.text_input("Ticker (ex: VALE3.SA)")
-alvo_alta = st.sidebar.number_input("Alerta de ALTA acima de:", min_value=0.0, step=0.1)
-alvo_baixa = st.sidebar.number_input("Alerta de QUEDA abaixo de:", min_value=0.0, step=0.1)
-email_dest = st.sidebar.text_input("Email para alerta:")
-
-if st.sidebar.button("Adicionar ao Monitoramento"):
-    novo = pd.DataFrame([[ticker_input, alvo_alta, alvo_baixa, email_dest]],
-                        columns=["ticker","alvo_alta","alvo_baixa","email"])
-
-    try:
-        df = pd.read_csv("watchlist.csv")
-        df = pd.concat([df, novo], ignore_index=True)
-    except:
-        df = novo
-    
-    df.to_csv("watchlist.csv", index=False)
-    st.sidebar.success(f"{ticker_input} adicionado ao monitoramento!")
-
-
 st.set_page_config(page_title="☝🤓 AI Market Analysis", layout="wide")
 st.title("📊 Análise de Mercado com Regressão, Indicadores Estatísticos e Retornos")
 
@@ -60,6 +24,33 @@ intervalo = st.selectbox("Selecione o intervalo:", ["1d", "1wk", "1mo"])
 
 # Baixar dados
 data = yf.download(tickers, period=periodo, interval=intervalo, group_by='ticker', auto_adjust=True)
+
+def prob_mc_tp_before_sl(df, tp_price, sl_price, horizon_days=5, n_sims=20000):
+    """
+    Probabilidade incondicional de bater TP antes de SL dentro de N dias.
+    Se nenhum for atingido, conta como 0.
+    """
+    returns = df["Return"].dropna()
+    mean = returns.mean()
+    std = returns.std()
+
+    wins = 0  # quantas vezes TP acontece antes do SL
+
+    for _ in range(n_sims):
+        price = df["Close"].iloc[-1]
+
+        for _ in range(horizon_days):
+            ret = np.random.normal(mean, std)
+            price *= (1 + ret)
+
+            if price >= tp_price:
+                wins += 1
+                break
+            if price <= sl_price:
+                break
+            # se nenhum é atingido, continua até o fim dos dias
+
+    return wins / n_sims
 
 def corrigir_colunas(df, ticker):
     """Corrige colunas quando há MultiIndex (vários tickers)."""
@@ -79,6 +70,58 @@ for ticker in tickers:
         annual_return = (1 + mean_daily) ** 252 - 1
         annual_vol = df["Return"].std() * np.sqrt(252)
         sharpe = (annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan
+        std_daily = df["Return"].std()
+        mean_daily = df["Return"].mean()
+        weekly_return = (1 + mean_daily) ** 5 - 1
+        annual_vol = df["Return"].std() * np.sqrt(252)
+        Weekly_vol = df["Return"].std() * np.sqrt(5)
+        cum = (1 + df["Return"]).cumprod()
+        peak = cum.cummax()
+        var_95 = np.percentile(df["Return"], 5)
+        cvar_95 = df["Return"][df["Return"] <= var_95].mean()
+        var_99 = np.percentile(df["Return"], 1)
+        cvar_99 = df["Return"][df["Return"] <= var_99].mean()
+        df["var_95"] = float(var_95)
+        df["cvar_95"] = float(cvar_95)
+        df["var_99"] = float(var_99)
+        df["cvar_99"] = float(cvar_99)
+        delta = df["Close"].diff()
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        rs = gain.ewm(span=14).mean() / loss.ewm(span=14).mean()
+        df["RSI"] = 100 - (100 / (1 + rs))
+        ema12 = df["Close"].ewm(span=12).mean()
+        ema26 = df["Close"].ewm(span=26).mean()
+        df["MACD"] = ema12 - ema26
+        df["Signal"] = df["MACD"].ewm(span=9).mean()
+        df["BB_Mid"] = df["Close"].rolling(20).mean()
+        df["BB_Std"] = df["Close"].rolling(20).std()
+        df["BB_Upper"] = df["BB_Mid"] + 2 * df["BB_Std"]
+        df["BB_Lower"] = df["BB_Mid"] - 2 * df["BB_Std"]
+        df["SMA20"] = df["Close"].rolling(20).mean()
+        df["EMA20"] = df["Close"].ewm(span=20).mean()
+
+         # Defina TP e SL (exemplo 5% TP / -3% SL)
+        tp_price = df["Close"].iloc[-1] * 1.07
+        sl_price = df["Close"].iloc[-1] * 0.95
+        current_price = df["Close"].iloc[-1]
+        target_price = tp_price
+        stop_price = sl_price
+
+        prob_mc = prob_mc_tp_before_sl(df,
+                                                    tp_price,
+                                                    sl_price,
+                                                    horizon_days=5,
+                                                    n_sims=50000
+        )
+
+        sharpe = (annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan
+        # Simulação Monte Carlo
+        target = 0.05   
+        N = 50000      
+        sim = np.random.normal(weekly_return, Weekly_vol, N)
+        # Probabilidade
+        prob = np.mean(sim >= target)
 
         # --- Regressão Linear ---
         X = np.arange(len(df)).reshape(-1, 1)
@@ -91,13 +134,14 @@ for ticker in tickers:
         df["Z_Score"] = (df["Close"] - df["Close"].mean()) / df["Close"].std()
 
         # --- Métricas ---
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         col1.metric("💰 Preço atual", f"R$ {df['Close'].iloc[-1]:.2f}")
-        col2.metric("📉 Retorno médio diário", f"{mean_daily:.4%}")
+        col2.metric("📈 Retorno médio semanal", f"{weekly_return:.2%}")
         col2.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
+        col3.metric("⚔️ Prob. TP antes de SL (MC)", f"{prob_mc:.2%}")
 
         col3, col4 = st.columns(2)
-        col1.metric("📊 Volatilidade anualizada", f"{annual_vol:.2%}")
+        col1.metric("📊 Volatilidade Semanal", f"{Weekly_vol:.2%}")
         col2.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
         col2.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
         required_features = ['SMA20', 'EMA20', 'Volatility']
@@ -172,7 +216,6 @@ for ticker in tickers:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-
         # --- Gráfico 1: Candle + Linha de Regressão ---
         fig1 = go.Figure()
 
@@ -227,26 +270,10 @@ for ticker in tickers:
                 template="plotly_dark", hovermode="x unified"
             )
             st.plotly_chart(fig3, use_container_width=True)
-            def sentinela():
-                while True:
-                    try:
-                        df = pd.read_csv("watchlist.csv")
-                        for _, row in df.iterrows():
-                            ticker = row["ticker"]
-                            preco = yf.Ticker(ticker).history(period="1m")["Close"][-1]
-                            if preco >= row["alvo_alta"]:
-                                enviar_email(row["email"], f"📈 ALTA: {ticker}", f"Preço atual: {preco}")
-                                if preco <= row["alvo_baixa"]:
-                                    enviar_email(row["email"], f"📉 BAIXA: {ticker}", f"Preço atual: {preco}")
-                    except Exception as e:
-                        print("Erro no monitoramento:", e)
-                        time.sleep(300)  # 5 minutos
-                        # Inicia o sentinela apenas uma vez
-            if "sentinela_rodando" not in st.session_state:
-                threading.Thread(target=sentinela, daemon=True).start()
-                st.session_state["sentinela_rodando"] = True
+            
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
