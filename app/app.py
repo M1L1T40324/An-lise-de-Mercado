@@ -19,27 +19,96 @@ st.title("📊 Dashboard de ativos para tomada de decisão, com regressão e out
 tickers = st.text_input("Digite os tickers separados por vírgula:", "BEEF3.SA")
 tickers = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
-periodo = st.selectbox("Selecione o período:", ["6mo", "1y", "2y", "5y", "10y", "max"])
+periodo = st.selectbox("Selecione o período:", ["2y", "5y", "10y", "max"])
 intervalo = st.selectbox("Selecione o intervalo:", ["1d", "1wk", "1mo"])
+
+st.sidebar.title("Ajustes ⚙")
+
+TP_PERCENT = st.sidebar.text_input("Porcentagem de TP alvo", "7")
+SL_PERCENT = st.sidebar.text_input("Porcentagem de SL máximo", "5")
+
+TP_PERCENT = 1 + float(TP_PERCENT) / 100.0
+SL_PERCENT = 1 - float(SL_PERCENT) / 100.0
+
+st.sidebar.title("Horizonte da Simulação ⏳")
+
+min_days = st.sidebar.number_input(
+    "Mínimo de dias do swing",
+    min_value=1,
+    value=10
+)
+
+max_days = st.sidebar.number_input(
+    "Máximo de dias do swing",
+    min_value=min_days,
+    value=15
+)
 
 # Baixar dados
 data = yf.download(tickers, period=periodo, interval=intervalo, group_by='ticker', auto_adjust=True)
 
-def prob_mc_tp_before_sl(df, tp_price, sl_price, horizon_days=5, n_sims=50000):
-    """
-    Probabilidade incondicional de bater TP antes de SL dentro de N dias.
-    Se nenhum for atingido, conta como 0.
-    """
+def calcular_prob_retorno(df, tp, sl, min_days=10, max_days=15, n_sims=30000):
+    returns = df["Return"].dropna()
+    mu = returns.mean()
+    sigma = returns.std()
+
+    prob_tp = 0
+    prob_sl = 0
+    prob_neutro = 0
+
+    preco_inicial = df["Close"].iloc[-1]
+
+    for _ in range(n_sims):
+        price = preco_inicial
+        hit = None
+
+        # sorteia o número de dias do swing
+        horizon_days = np.random.randint(min_days, max_days + 1)
+
+        for _ in range(horizon_days):
+            ret = np.random.normal(mu, sigma)
+            price *= (1 + ret)
+
+            if price >= tp:
+                hit = "TP"
+                break
+            if price <= sl:
+                hit = "SL"
+                break
+
+        if hit == "TP":
+            prob_tp += 1
+        elif hit == "SL":
+            prob_sl += 1
+        else:
+            prob_neutro += 1
+
+    prob_tp /= n_sims
+    prob_sl /= n_sims
+    prob_neutro /= n_sims
+
+    retorno_esperado = (
+        prob_tp * (tp / preco_inicial - 1) +
+        prob_sl * (sl / preco_inicial - 1)
+    )
+
+    return prob_tp, prob_sl, prob_neutro, retorno_esperado
+
+
+
+def prob_mc_tp_before_sl(df, tp_price, sl_price, min_days=10, max_days=15, n_sims=50000):
     returns = df["Return"].dropna()
     mean = returns.mean()
     std = returns.std()
 
-    wins = 0  # quantas vezes TP acontece antes do SL
+    wins = 0
+    start_price = df["Close"].iloc[-1]
 
     for _ in range(n_sims):
-        price = df["Close"].iloc[-1]
+        price = start_price
+        horizon = np.random.randint(min_days, max_days + 1)
 
-        for _ in range(horizon_days):
+        for _ in range(horizon):
             ret = np.random.normal(mean, std)
             price *= (1 + ret)
 
@@ -48,7 +117,6 @@ def prob_mc_tp_before_sl(df, tp_price, sl_price, horizon_days=5, n_sims=50000):
                 break
             if price <= sl_price:
                 break
-            # se nenhum é atingido, continua até o fim dos dias
 
     return wins / n_sims
 
@@ -58,6 +126,36 @@ def corrigir_colunas(df, ticker):
         df = df[ticker].copy()
     return df
 
+def buscar_t_melhores(tickers, data, horizon_days=5):
+    resultados = []
+
+    for ticker in tickers:
+        try:
+            df = corrigir_colunas(data, ticker).dropna()
+            df["Return"] = df["Close"].pct_change()
+
+            current = df["Close"].iloc[-1]
+            tp = current * TP_PERCENT
+            sl = current * SL_PERCENT
+
+
+            prob_tp, prob_sl, _, ret_exp = calcular_prob_retorno(df, tp, sl, min_days, max_days)
+
+
+            resultados.append((ticker, ret_exp, prob_tp, prob_sl))
+
+        except:
+            continue
+
+    df_rank = pd.DataFrame(resultados,
+                           columns=["Ticker", "Retorno Esperado", "Prob_TP", "Prob_SL"])
+    df_rank.sort_values(by="Retorno Esperado", ascending=False, inplace=True)
+
+    return df_rank.head(3)
+
+
+
+
 for ticker in tickers:
     st.subheader(f"📈 {ticker}")
 
@@ -66,17 +164,29 @@ for ticker in tickers:
 
         # --- Cálculos Estatísticos ---
         df["Return"] = df["Close"].pct_change()
+
+        # --- Volatilidade ajustada ao horizonte de simulação ---
+        horizon_mean = (min_days + max_days) / 2
+        vol_horizon = df["Return"].std() * np.sqrt(horizon_mean)
+
         mean_daily = df["Return"].mean()
         annual_return = (1 + mean_daily) ** 252 - 1
         annual_vol = df["Return"].std() * np.sqrt(252)
         sharpe = (annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan
         std_daily = df["Return"].std()
         mean_daily = df["Return"].mean()
-        weekly_return = (1 + mean_daily) ** 5 - 1
+        horizon_mean = (min_days + max_days) / 2
+        horizon_return = (1 + mean_daily) ** horizon_mean - 1
+
         annual_vol = df["Return"].std() * np.sqrt(252)
         Weekly_vol = df["Return"].std() * np.sqrt(5)
         cum = (1 + df["Return"]).cumprod()
         peak = cum.cummax()
+        # --- Max Drawdown ---
+        drawdown = (cum - peak) / peak
+        max_drawdown = drawdown.min()
+        df["Drawdown"] = drawdown
+
         var_95 = np.percentile(df["Return"], 5)
         cvar_95 = df["Return"][df["Return"] <= var_95].mean()
         var_99 = np.percentile(df["Return"], 1)
@@ -102,24 +212,26 @@ for ticker in tickers:
         df["EMA20"] = df["Close"].ewm(span=20).mean()
 
          # Defina TP e SL (exemplo 5% TP / -3% SL)
-        tp_price = df["Close"].iloc[-1] * 1.07
-        sl_price = df["Close"].iloc[-1] * 0.95
+        tp_price = df["Close"].iloc[-1] * TP_PERCENT
+        sl_price = df["Close"].iloc[-1] * SL_PERCENT
+
         current_price = df["Close"].iloc[-1]
         target_price = tp_price
         stop_price = sl_price
 
-        prob_mc = prob_mc_tp_before_sl(df,
-                                                    tp_price,
-                                                    sl_price,
-                                                    horizon_days=5,
-                                                    n_sims=50000
-        )
+        prob_tp, prob_sl, prob_neutro, retorno_esp = calcular_prob_retorno(
+            df, tp_price, sl_price, min_days, max_days
+            )
+
+
 
         sharpe = (annual_return - 0.1) / annual_vol if annual_vol != 0 else np.nan
         # Simulação Monte Carlo
         target = 0.05   
         N = 50000      
-        sim = np.random.normal(weekly_return, Weekly_vol, N)
+        drift_horizon = mean_daily * horizon_mean
+        sim = np.random.normal(horizon_return, vol_horizon, N)
+
         # Probabilidade
         prob = np.mean(sim >= target)
 
@@ -133,15 +245,19 @@ for ticker in tickers:
         df["Distância"] = df["Close"] - df["Regressão"]
         df["Z_Score"] = (df["Close"] - df["Close"].mean()) / df["Close"].std()
 
+
         # --- Métricas ---
         col1, col2, col3 = st.columns(3)
         col1.metric("💰 Preço atual", f"R$ {df['Close'].iloc[-1]:.2f}")
-        col2.metric("📈 Retorno médio semanal", f"{weekly_return:.2%}")
+        col2.metric("📈 Retorno médio no horizonte", f"{horizon_return:.2%}")
         col2.metric("📈 Retorno anualizado", f"{annual_return:.2%}")
-        col3.metric("⚔️ Prob. TP antes de SL (MC)", f"{prob_mc:.2%}")
-
+        col3.metric("⚔️ Prob. TP antes de SL", f"{prob_tp:.2%}")
+        col3.metric("💥 Prob. SL antes de TP", f"{prob_sl:.2%}")
+        col3.metric("🎯 Retorno Esperado", f"{retorno_esp:.2%}")
+        col3.metric("💀 Max Drawdown", f"{max_drawdown:.2%}")
+    
         col3, col4 = st.columns(2)
-        col1.metric("📊 Volatilidade Semanal", f"{Weekly_vol:.2%}")
+        col1.metric("📊 Volatilidade no Horizonte", f"{vol_horizon:.2%}")
         col2.metric("⚖️ Índice de Sharpe", f"{sharpe:.2f}")
         col2.metric("🧭 Z-Score atual", f"{df['Z_Score'].iloc[-1]:.2f}")
         required_features = ['SMA20', 'EMA20', 'Volatility']
@@ -242,6 +358,22 @@ for ticker in tickers:
             xaxis_rangeslider_visible=False
         )
         st.plotly_chart(fig1, use_container_width=True)
+        #Gráfico DrawDown
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
+            x=df.index,
+            y=df["Drawdown"],
+            mode="lines",
+            name="Drawdown"
+            ))
+        fig_dd.update_layout(
+            title="💀 Histórico do Drawdown",
+            xaxis_title="Data",
+            yaxis_title="Drawdown",
+            template="plotly_dark",
+            hovermode="x unified"
+            )
+        st.plotly_chart(fig_dd, use_container_width=True)
 
         # --- Gráfico 2: Variação da Distância ---
         df["Distância_var"] = df["Distância"].diff()
@@ -273,6 +405,7 @@ for ticker in tickers:
             
     except Exception as e:
         st.error(f"Erro ao processar {ticker}: {e}")
+
 
 
 
