@@ -37,13 +37,12 @@ def gbm_features(close):
 # 2. TP / SL SIMULATION
 # =========================
 
-def label_tp_sl(price_df, tp, sl, horizon):
+def label_tp_sl(df, tp, sl, horizon):
     y = []
-    index = []
 
-    for i in range(len(price_df) - horizon):
-        entry = price_df["Close"].iloc[i]
-        future = price_df.iloc[i+1:i+horizon+1]
+    for i in range(len(df) - horizon):
+        entry = df["Close"].iloc[i]
+        future = df.iloc[i + 1 : i + horizon + 1]
 
         tp_price = entry * (1 + tp)
         sl_price = entry * (1 - sl)
@@ -58,9 +57,8 @@ def label_tp_sl(price_df, tp, sl, horizon):
         else:
             y.append(np.nan)
 
-        index.append(price_df.index[i])
+    return pd.Series(y, index=df.index[:len(y)])
 
-    return pd.Series(y, index=index)
 
 
     for i in range(len(df) - horizon):
@@ -223,6 +221,7 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(scan_df.sort_values("EV", ascending=False).head(4))
+
 
 
 
