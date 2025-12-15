@@ -37,8 +37,31 @@ def gbm_features(close):
 # 2. TP / SL SIMULATION
 # =========================
 
-def label_tp_sl(df, tp, sl, horizon):
+def label_tp_sl(price_df, tp, sl, horizon):
     y = []
+    index = []
+
+    for i in range(len(price_df) - horizon):
+        entry = price_df["Close"].iloc[i]
+        future = price_df.iloc[i+1:i+horizon+1]
+
+        tp_price = entry * (1 + tp)
+        sl_price = entry * (1 - sl)
+
+        hit_tp = (future["High"] >= tp_price).any()
+        hit_sl = (future["Low"] <= sl_price).any()
+
+        if hit_tp and not hit_sl:
+            y.append(1)
+        elif hit_sl and not hit_tp:
+            y.append(0)
+        else:
+            y.append(np.nan)
+
+        index.append(price_df.index[i])
+
+    return pd.Series(y, index=index)
+
 
     for i in range(len(df) - horizon):
         entry = df["Close"].iloc[i]
@@ -136,7 +159,7 @@ if st.button("Rodar modelo para 1 ativo"):
     tp_list = np.linspace(0.05, 0.15, 5)
     sl_list = np.linspace(0.01, 0.10, 5)
 
-    y = label_tp_sl(df, tp_list[0], sl_list[0], horizon)
+    y = label_tp_sl(data, tp_list[0], sl_list[0], horizon)
 
     X = df[feats.columns]
     
@@ -200,6 +223,7 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(scan_df.sort_values("EV", ascending=False).head(4))
+
 
 
 
