@@ -1,7 +1,3 @@
-!pip install streamlit yfinance numpy pandas scikit-learn
-
-
-
 # Streamlit app: GBM features + XGBoost TP/SL scanner
 # Autor: exemplo educacional
 
@@ -173,3 +169,4 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(top4)
+
