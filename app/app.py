@@ -41,14 +41,14 @@ def label_tp_sl(df, tp, sl, horizon):
     y = []
 
     for i in range(len(df) - horizon):
-        entry = df["Close"].iloc[i]
+        entry = float(df["Close"].iloc[i])
         future = df.iloc[i + 1 : i + horizon + 1]
 
         tp_price = entry * (1 + tp)
         sl_price = entry * (1 - sl)
 
-        hit_tp = (future["High"] >= tp_price).any()
-        hit_sl = (future["Low"] <= sl_price).any()
+        hit_tp = bool((future["High"] >= tp_price).any())
+        hit_sl = bool((future["Low"] <= sl_price).any())
 
         if hit_tp and not hit_sl:
             y.append(1)
@@ -58,6 +58,7 @@ def label_tp_sl(df, tp, sl, horizon):
             y.append(np.nan)
 
     return pd.Series(y, index=df.index[:len(y)])
+
 
 
 
@@ -157,7 +158,13 @@ if st.button("Rodar modelo para 1 ativo"):
     tp_list = np.linspace(0.05, 0.15, 5)
     sl_list = np.linspace(0.01, 0.10, 5)
 
-    y = label_tp_sl(data, tp_list[0], sl_list[0], horizon)
+    y = label_tp_sl(
+        df[["Open", "High", "Low", "Close"]],
+        tp_list[0],
+        sl_list[0],
+        horizon
+    )
+
 
     X = df[feats.columns]
     
@@ -221,6 +228,7 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(scan_df.sort_values("EV", ascending=False).head(4))
+
 
 
 
