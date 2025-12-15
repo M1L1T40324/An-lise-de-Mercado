@@ -63,27 +63,36 @@ def label_tp_sl(df, tp, sl, horizon):
 # 3. TRAIN XGBOOST MODEL
 # =========================
 
-def train_model(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, shuffle=False
-    )
+def train_model(X, y, min_samples=50):
+    if len(X) < min_samples:
+        raise ValueError(
+            f"Amostras insuficientes para treino: {len(X)} (< {min_samples})"
+        )
+
+    split = int(len(X) * 0.7)
+
+    X_train = X.iloc[:split]
+    X_test = X.iloc[split:]
+    y_train = y.iloc[:split]
+    y_test = y.iloc[split:]
 
     model = XGBClassifier(
-        n_estimators=300,
+        n_estimators=200,
         max_depth=4,
         learning_rate=0.05,
         subsample=0.8,
         colsample_bytree=0.8,
-        eval_metric="logloss",
+        eval_metric="auc",
         random_state=42
     )
 
     model.fit(X_train, y_train)
-    prob = model.predict_proba(X_test)[:,1]
 
-    auc = roc_auc_score(y_test, prob)
+    probs = model.predict_proba(X_test)[:, 1]
+    auc = roc_auc_score(y_test, probs)
+
     return model, auc
-
+    
 # =========================
 # 4. TP/SL GRID SEARCH
 # =========================
@@ -129,7 +138,11 @@ if st.button("Rodar modelo para 1 ativo"):
     y = y.dropna()
     X = df.loc[y.index, feats.columns]
 
-    model, auc = train_model(X, y)
+    try:
+        model, auc = train_model(X, y)
+    except ValueError as e:
+        st.warning(str(e))
+        st.stop()
 
     res = evaluate_tp_sl(df, model, feats.columns, tp_list, sl_list, horizon)
     best = res.sort_values("EV", ascending=False).iloc[0]
@@ -176,6 +189,7 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(top4)
+
 
 
 
