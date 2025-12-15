@@ -122,23 +122,43 @@ def train_model(X, y, min_samples=100):
 # 4. TP/SL GRID SEARCH
 # =========================
 
-def evaluate_tp_sl(df, model, features, tp_list, sl_list):
+def evaluate_tp_sl(df, features_df, tp_list, sl_list, horizon):
     results = []
-
-    X_last = df[features].iloc[-1:]
-    prob_tp = model.predict_proba(X_last)[0, 1]
 
     for tp in tp_list:
         for sl in sl_list:
+
+            y = label_tp_sl(
+                df[["Open", "High", "Low", "Close"]],
+                tp,
+                sl,
+                horizon
+            ).dropna()
+
+            if len(y) < 50:
+                continue
+
+            X = features_df.loc[y.index]
+
+            try:
+                model, auc = train_model(X, y)
+            except:
+                continue
+
+            prob_tp = model.predict_proba(X.iloc[-1:])[0, 1]
+
             EV = prob_tp * tp - (1 - prob_tp) * sl
+
             results.append({
                 "TP": tp,
                 "SL": sl,
                 "Prob_TP": prob_tp,
-                "EV": EV
+                "EV": EV,
+                "AUC": auc
             })
 
     return pd.DataFrame(results)
+
 
 # =========================
 # 5. STREAMLIT UI
@@ -235,6 +255,7 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(scan_df.sort_values("EV", ascending=False).head(4))
+
 
 
 
