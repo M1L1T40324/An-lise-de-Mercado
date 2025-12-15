@@ -146,7 +146,6 @@ def evaluate_tp_sl(df, features_df, tp_list, sl_list, horizon):
                 continue
 
             prob_tp = model.predict_proba(X.iloc[-1:])[0, 1]
-
             EV = prob_tp * tp - (1 - prob_tp) * sl
 
             results.append({
@@ -158,6 +157,7 @@ def evaluate_tp_sl(df, features_df, tp_list, sl_list, horizon):
             })
 
     return pd.DataFrame(results)
+
 
 
 # =========================
@@ -206,7 +206,14 @@ if st.button("Rodar modelo para 1 ativo"):
         st.warning(str(e))
         st.stop()
 
-    res = evaluate_tp_sl(df, model, feats.columns, tp_list, sl_list)
+    res = evaluate_tp_sl(
+        df,
+        feats,
+        tp_list,
+        sl_list,
+        horizon
+    )
+
     best = res.sort_values("EV", ascending=False).iloc[0]
 
     st.write("AUC do modelo:", round(auc, 3))
@@ -255,6 +262,7 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(scan_df.sort_values("EV", ascending=False).head(4))
+
 
 
 
