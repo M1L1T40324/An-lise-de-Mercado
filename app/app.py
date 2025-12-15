@@ -139,6 +139,10 @@ if st.button("Rodar modelo para 1 ativo"):
     y = label_tp_sl(df, tp_list[0], sl_list[0], horizon)
 
     X = df[feats.columns]
+    
+    if len(df) < 300:
+    st.warning("Histórico insuficiente após feature engineering.")
+    st.stop()
 
     try:
         model, auc = train_model(X, y)
@@ -195,4 +199,5 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(scan_df.sort_values("EV", ascending=False).head(4))
+
 
