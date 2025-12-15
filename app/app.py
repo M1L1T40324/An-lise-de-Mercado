@@ -23,14 +23,15 @@ def gbm_features(close):
     vol_5d = log_ret.rolling(5).std()
     vol_10d = log_ret.rolling(10).std()
 
-    df = pd.DataFrame({
-        "mu_gbm": mu,
-        "sigma_gbm": sigma,
-        "vol_5d": vol_5d,
-        "vol_10d": vol_10d
-    })
+    df = pd.DataFrame(index=close.index)
+
+    df["mu_gbm"] = mu
+    df["sigma_gbm"] = sigma
+    df["vol_5d"] = vol_5d
+    df["vol_10d"] = vol_10d
 
     return df.dropna()
+
 
 # =========================
 # 2. TP / SL SIMULATION
@@ -194,3 +195,4 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(scan_df.sort_values("EV", ascending=False).head(4))
+
