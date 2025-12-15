@@ -14,18 +14,25 @@ from sklearn.metrics import roc_auc_score
 # =========================
 
 def gbm_features(close):
-    log_ret = np.log(close / close.shift(1)).dropna()
+    close = close.astype(float)
+
+    log_ret = np.log(close / close.shift(1))
+    log_ret = log_ret.dropna()
 
     mu = log_ret.mean() * 252
     sigma = log_ret.std() * np.sqrt(252)
 
-    return pd.DataFrame({
-        "mu_gbm": pd.Series(mu, index=log_ret.index),
-        "sigma_gbm": pd.Series(sigma, index=log_ret.index),
-        "vol_5d": log_ret.rolling(5).std(),
-        "vol_10d": log_ret.rolling(10).std(),
-    }).dropna()
+    vol_5d = log_ret.rolling(5).std()
+    vol_10d = log_ret.rolling(10).std()
 
+    df = pd.DataFrame(index=log_ret.index)
+
+    df["mu_gbm"] = mu
+    df["sigma_gbm"] = sigma
+    df["vol_5d"] = vol_5d.values.flatten()
+    df["vol_10d"] = vol_10d.values.flatten()
+
+    return df.dropna()
 
 # =========================
 # 2. TP / SL SIMULATION
@@ -169,5 +176,6 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(top4)
+
 
 
