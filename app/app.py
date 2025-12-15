@@ -150,7 +150,14 @@ symbol = st.text_input("Ticker", "PETR4.SA")
 horizon = st.slider("Horizonte (dias)", 5, 20, 10)
 
 if st.button("Rodar modelo para 1 ativo"):
-    data = yf.download(symbol, period="5y", auto_adjust=True)
+    data = yf.download(symbol, period="5y")
+    # FIX Streamlit Cloud / yfinance
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    required_cols = {"Open", "High", "Low", "Close"}
+    if not required_cols.issubset(data.columns):
+        st.error("Dados OHLC incompletos.")
+        st.stop()
 
     feats = gbm_features(data["Close"])
     df = pd.concat([data, feats], axis=1).dropna()
@@ -228,6 +235,7 @@ if st.button("Scan múltiplos tickers"):
 
     st.subheader("Top 4 Tickers")
     st.dataframe(scan_df.sort_values("EV", ascending=False).head(4))
+
 
 
 
