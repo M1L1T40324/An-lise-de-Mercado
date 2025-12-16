@@ -322,8 +322,7 @@ if st.button("Rodar scan e montar portfólio"):
                 kelly_sum += row["Kelly_%"]
             else:
                 break
-
-    final_df = pd.DataFrame(selected)
+        final_df = pd.DataFrame(selected)
 
     st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
     st.dataframe(final_df.reset_index(drop=True))
