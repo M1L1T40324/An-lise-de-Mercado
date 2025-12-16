@@ -280,52 +280,61 @@ if st.button("Rodar scan e montar portfólio"):
         if t.strip() != ""
     ]
     portfolio_rows = []
-
     with st.spinner("Rodando modelos..."):
         for sym in tickers:
-            sym = sym.strip()
-
-    try:
-        data = yf.download(sym, period="5y")
-
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-
-        required_cols = {"Open", "High", "Low", "Close"}
-        if not required_cols.issubset(data.columns):
-            continue
-
-        feats = gbm_features(data["Close"])
-        df = pd.concat([data, feats], axis=1).dropna()
-
-        if len(df) < 300:
-            continue
-
-        res = evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon)
-
-        if res.empty:
-            continue
-
-        best = res.sort_values("EV", ascending=False).iloc[0]
-        portfolio_df = pd.DataFrame(portfolio_rows)
-        if portfolio_df.empty:
-            st.warning("Nenhum ticker válido encontrado.")
-            st.stop()
+            try:
+                data = yf.download(sym, period="5y", auto_adjust=True)
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = data.columns.get_level_values(0)
+                
+                required_cols = {"Open", "High", "Low", "Close"}
+                if not required_cols.issubset(data.columns):
+                    continue
+                feats = ar_garch_features_safe(data["Close"])
+                df = pd.concat([data, feats], axis=1).dropna()
+                if len(df) < 300:
+                    continue
+                
+                tp_list = np.linspace(0.02, 0.10, 6)
+                sl_list = np.linspace(0.01, 0.06, 6)
+                
+                res = evaluate_tp_sl_ar_garch(
+                    df, feats, tp_list, sl_list, horizon
+                )
+                if res.empty:
+                    continue
+                
+                best = res.sort_values("EV_adj", ascending=False).iloc[0]
+                portfolio_rows.append({
+                    "Ticker": sym,
+                    "TP": best.TP,
+                    "SL": best.SL,
+                    "Prob_TP": best.Prob_TP,
+                    "EV_ajustado": best.EV_adj,
+                    "Kelly_%": best.Kelly_frac * 100
+                })
+            except Exception:
+                continue
+            portfolio_df = pd.DataFrame(portfolio_rows)
+            if portfolio_df.empty:
+                st.warning("Nenhum ticker válido encontrado.")
+                st.stop()
             # Ordena por EV ajustado
-        portfolio_df = portfolio_df.sort_values("EV_ajustado", ascending=False)
-        # Seleciona até Kelly somar 100%
-        selected = []
-        kelly_sum = 0.0
-        for _, row in portfolio_df.iterrows():
-            if kelly_sum + row["Kelly_%"] <= 100.0:
-                selected.append(row)
-                kelly_sum += row["Kelly_%"]
-            else:
-                break
-        final_df = pd.DataFrame(selected)
+            portfolio_df = portfolio_df.sort_values("EV_ajustado", ascending=False)
+            # Seleciona até Kelly somar 100%
+            selected = []
+            kelly_sum = 0.0
 
-        st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
-        st.dataframe(final_df.reset_index(drop=True))
+            for _, row in portfolio_df.iterrows():
+                if kelly_sum + row["Kelly_%"] <= 100.0:
+                    selected.append(row)
+                    kelly_sum += row["Kelly_%"]
+                else:
+                    break
+            final_df = pd.DataFrame(selected)
+            st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
+            st.dataframe(final_df.reset_index(drop=True))
+
 
 
 
