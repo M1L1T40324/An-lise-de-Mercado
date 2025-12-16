@@ -1,5 +1,4 @@
 # Streamlit app: GBM features + XGBoost TP/SL scanner
-# Autor: exemplo educacional
 
 import streamlit as st
 import yfinance as yf
@@ -303,6 +302,7 @@ if st.button("Rodar scan e montar portfólio"):
 
     st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
     st.dataframe(final_df.reset_index(drop=True))
+
 
 
 
