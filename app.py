@@ -266,6 +266,24 @@ if st.button("Rodar modelo"):
     )
 
 st.divider()
+
+st.markdown("### 📥 Entrada de tickers")
+
+uploaded_file = st.file_uploader(
+    "Upload CSV ou TXT com tickers",
+    type=["csv", "txt"]
+)
+
+raw_tickers = ""
+
+if uploaded_file is not None:
+    if uploaded_file.name.endswith(".csv"):
+        df_t = pd.read_csv(uploaded_file, header=None)
+        raw_tickers = ",".join(df_t.iloc[:, 0].astype(str))
+    else:
+        raw_tickers = uploaded_file.read().decode("utf-8")
+
+
 st.subheader("📦 Scan multi-ticker (portfólio ótimo)")
 
 if st.button("Rodar scan e montar portfólio"):
