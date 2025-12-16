@@ -283,7 +283,7 @@ if st.button("Rodar scan e montar portfólio"):
 
     with st.spinner("Rodando modelos..."):
         for sym in tickers:
-    sym = sym.strip()
+            sym = sym.strip()
 
     try:
         data = yf.download(sym, period="5y")
