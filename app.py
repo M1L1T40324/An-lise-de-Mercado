@@ -188,12 +188,19 @@ def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
             tp_eff = tp / np.sqrt(horizon)
             sl_eff = sl / np.sqrt(horizon)
             p_tp, p_sl = prob_tp_sl(mu, sigma, tp_eff, sl_eff, horizon)
+            
+            sl_min = 1.5 * sigma * np.sqrt(horizon)
+            if sl < sl_min:
+                continue
 
 
             if p_tp <= 0 or p_sl <= 0:
                 continue
 
             EV = compute_ev(tp, sl, p_tp, p_sl)
+            sl_penalty = min(1.0, sl / (2 * sigma * np.sqrt(horizon)))
+            EV *= sl_penalty
+
 
             penalty = levy_tail_penalty(
                 tp,
