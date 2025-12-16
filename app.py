@@ -189,9 +189,7 @@ def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
             sl_eff = sl / np.sqrt(horizon)
             p_tp, p_sl = prob_tp_sl(mu, sigma, tp_eff, sl_eff, horizon)
             
-            sl_min = 1.5 * sigma * np.sqrt(horizon)
-            if sl < sl_min:
-                continue
+          
 
 
             if p_tp <= 0 or p_sl <= 0:
