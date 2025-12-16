@@ -324,8 +324,8 @@ if st.button("Rodar scan e montar portfólio"):
                 break
         final_df = pd.DataFrame(selected)
 
-    st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
-    st.dataframe(final_df.reset_index(drop=True))
+        st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
+        st.dataframe(final_df.reset_index(drop=True))
 
 
 
