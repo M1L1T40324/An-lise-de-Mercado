@@ -254,6 +254,11 @@ if st.button("Rodar modelo"):
 
     best = res.sort_values("EV_adj", ascending=False).iloc[0]
 
+    b = best.TP / best.SL
+    p = best.Prob_TP
+    kelly_raw = (p * (b + 1) - 1) / b
+    kelly = np.clip(kelly_raw, 0, 0.25)
+
     st.dataframe(res)
     st.success(
         f"Melhor combo → TP {best.TP:.2%}, SL {best.SL:.2%}, "
@@ -264,57 +269,45 @@ st.divider()
 st.subheader("📦 Scan multi-ticker (portfólio ótimo)")
 
 if st.button("Rodar scan e montar portfólio"):
-    tickers = st.text_area(
-        "Tickers (separados por vírgula)",
-        "PETR4.SA,VALE3.SA,ITUB4.SA,BBDC4.SA,BBAS3.SA,WEGE3.SA"
-    ).split(",")
-
+    raw_tickers = st.text_area(
+        "Tickers (separados por vírgula ou quebra de linha)",
+        "PETR4.SA, VALE3.SA, ITUB4.SA\nBBDC4.SA, BBAS3.SA, WEGE3.SA",
+        height=150
+    )
+    tickers = [
+        t.strip().upper()
+        for t in raw_tickers.replace("\n", ",").split(",")
+        if t.strip() != ""
+    ]
     portfolio_rows = []
 
     with st.spinner("Rodando modelos..."):
         for sym in tickers:
-            sym = sym.strip()
+    sym = sym.strip()
 
-            try:
-                data = yf.download(sym, period="5y")
+    try:
+        data = yf.download(sym, period="5y")
 
-                # Fix Streamlit Cloud / yfinance
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(0)
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
 
-                required_cols = {"Open", "High", "Low", "Close"}
-                if not required_cols.issubset(data.columns):
-                    continue
+        required_cols = {"Open", "High", "Low", "Close"}
+        if not required_cols.issubset(data.columns):
+            continue
 
-                feats = gbm_features(data["Close"])
-                df = pd.concat([data, feats], axis=1).dropna()
+        feats = gbm_features(data["Close"])
+        df = pd.concat([data, feats], axis=1).dropna()
 
-                if len(df) < 300:
-                    continue
+        if len(df) < 300:
+            continue
 
-                res = evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon)
+        res = evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon)
 
-                if res.empty:
-                    continue
+        if res.empty:
+            continue
 
-                best = res.sort_values("EV", ascending=False).iloc[0]
+        best = res.sort_values("EV", ascending=False).iloc[0]
 
-                # Kelly fracionado
-                b = best.TP / best.SL
-                p = best.Prob_TP
-                kelly = max((p * (b + 1) - 1) / b, 0)
-
-                portfolio_rows.append({
-                    "Ticker": sym,
-                    "TP": best.TP,
-                    "SL": best.SL,
-                    "Prob_TP": best.Prob_TP,
-                    "EV_ajustado": best.EV,
-                    "Kelly_%": kelly * 100
-                })
-
-            except:
-                continue
 
     portfolio_df = pd.DataFrame(portfolio_rows)
 
@@ -330,7 +323,7 @@ if st.button("Rodar scan e montar portfólio"):
     kelly_sum = 0.0
 
     for _, row in portfolio_df.iterrows():
-        if kelly_sum + row["Kelly_%"] <= 100:
+        if kelly_sum + row["Kelly_%"] <= 100.0:
             selected.append(row)
             kelly_sum += row["Kelly_%"]
         else:
