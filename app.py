@@ -307,9 +307,7 @@ if st.button("Rodar scan e montar portfólio"):
             continue
 
         best = res.sort_values("EV", ascending=False).iloc[0]
-
-
-    portfolio_df = pd.DataFrame(portfolio_rows)
+        portfolio_df = pd.DataFrame(portfolio_rows)
 
     if portfolio_df.empty:
         st.warning("Nenhum ticker válido encontrado.")
