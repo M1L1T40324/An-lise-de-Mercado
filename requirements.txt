@@ -1,6 +1,9 @@
 streamlit
+yfinance
 numpy
 pandas
-yfinance
-scikit-learn
+scipy
+statsmodels
+arch
 xgboost
+scikit-learn
