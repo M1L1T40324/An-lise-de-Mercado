@@ -4,6 +4,5 @@ numpy
 pandas
 scipy
 statsmodels
-arch
-xgboost
 scikit-learn
+
