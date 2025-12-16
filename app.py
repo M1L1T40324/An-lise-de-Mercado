@@ -312,17 +312,16 @@ if st.button("Rodar scan e montar portfólio"):
             st.warning("Nenhum ticker válido encontrado.")
             st.stop()
             # Ordena por EV ajustado
-    portfolio_df = portfolio_df.sort_values("EV_ajustado", ascending=False)
-    # Seleciona até Kelly somar 100%
-    selected = []
-    kelly_sum = 0.0
-
-    for _, row in portfolio_df.iterrows():
-        if kelly_sum + row["Kelly_%"] <= 100.0:
-            selected.append(row)
-            kelly_sum += row["Kelly_%"]
-        else:
-            break
+        portfolio_df = portfolio_df.sort_values("EV_ajustado", ascending=False)
+        # Seleciona até Kelly somar 100%
+        selected = []
+        kelly_sum = 0.0
+        for _, row in portfolio_df.iterrows():
+            if kelly_sum + row["Kelly_%"] <= 100.0:
+                selected.append(row)
+                kelly_sum += row["Kelly_%"]
+            else:
+                break
 
     final_df = pd.DataFrame(selected)
 
