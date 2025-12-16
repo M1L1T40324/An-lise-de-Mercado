@@ -308,14 +308,11 @@ if st.button("Rodar scan e montar portfólio"):
 
         best = res.sort_values("EV", ascending=False).iloc[0]
         portfolio_df = pd.DataFrame(portfolio_rows)
-
-    if portfolio_df.empty:
-        st.warning("Nenhum ticker válido encontrado.")
-        st.stop()
-
-    # Ordena por EV ajustado
+        if portfolio_df.empty:
+            st.warning("Nenhum ticker válido encontrado.")
+            st.stop()
+            # Ordena por EV ajustado
     portfolio_df = portfolio_df.sort_values("EV_ajustado", ascending=False)
-
     # Seleciona até Kelly somar 100%
     selected = []
     kelly_sum = 0.0
