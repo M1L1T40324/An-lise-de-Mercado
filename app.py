@@ -269,7 +269,7 @@ st.divider()
 st.subheader("📦 Scan multi-ticker (portfólio ótimo)")
 
 if st.button("Rodar scan e montar portfólio"):
-    raw_tickers = st.text_area(
+    raw_tickers = st.write(
         "Tickers (separados por vírgula ou quebra de linha)",
         "PETR4.SA, VALE3.SA, ITUB4.SA\nBBDC4.SA, BBAS3.SA, WEGE3.SA",
         height=150
