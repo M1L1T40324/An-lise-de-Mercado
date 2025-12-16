@@ -188,9 +188,6 @@ def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
             tp_eff = tp / np.sqrt(horizon)
             sl_eff = sl / np.sqrt(horizon)
             p_tp, p_sl = prob_tp_sl(mu, sigma, tp_eff, sl_eff, horizon)
-            
-          
-
 
             if p_tp <= 0 or p_sl <= 0:
                 continue
@@ -283,10 +280,10 @@ if uploaded_file is not None:
     else:
         raw_tickers = uploaded_file.read().decode("utf-8")
 
-
 st.subheader("📦 Scan multi-ticker (portfólio ótimo)")
 
 if st.button("Rodar scan e montar portfólio"):
+
     raw_tickers = st.text_area(
         "Tickers (vírgula ou quebra de linha)",
         raw_tickers,
@@ -298,32 +295,44 @@ if st.button("Rodar scan e montar portfólio"):
         for t in raw_tickers.replace("\n", ",").split(",")
         if t.strip() != ""
     ]
+
     portfolio_rows = []
+
+    progress = st.progress(0)
+    status = st.empty()
+
     with st.spinner("Rodando modelos..."):
-        for sym in tickers:
+        for i, sym in enumerate(tickers):
             try:
-                data = yf.download(sym, period="5y", auto_adjust=True)
+                status.text(f"Processando {sym} ({i+1}/{len(tickers)})")
+
+                data = yf.download(sym, period="5y", auto_adjust=True, progress=False)
+
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
-                
+
                 required_cols = {"Open", "High", "Low", "Close"}
                 if not required_cols.issubset(data.columns):
                     continue
+
                 feats = ar_garch_features_safe(data["Close"])
                 df = pd.concat([data, feats], axis=1).dropna()
+
                 if len(df) < 300:
                     continue
-                
+
                 tp_list = np.linspace(0.02, 0.10, 6)
                 sl_list = np.linspace(0.01, 0.06, 6)
-                
+
                 res = evaluate_tp_sl_ar_garch(
                     df, feats, tp_list, sl_list, horizon
                 )
+
                 if res.empty:
                     continue
-                
+
                 best = res.sort_values("EV_adj", ascending=False).iloc[0]
+
                 portfolio_rows.append({
                     "Ticker": sym,
                     "TP": best.TP,
@@ -332,27 +341,63 @@ if st.button("Rodar scan e montar portfólio"):
                     "EV_ajustado": best.EV_adj,
                     "Kelly_%": best.Kelly_frac * 100
                 })
+
             except Exception:
                 continue
-            portfolio_df = pd.DataFrame(portfolio_rows)
-            if portfolio_df.empty:
-                st.warning("Nenhum ticker válido encontrado.")
-                st.stop()
-            # Ordena por EV ajustado
-            portfolio_df = portfolio_df.sort_values("EV_ajustado", ascending=False)
-            # Seleciona até Kelly somar 100%
-            selected = []
-            kelly_sum = 0.0
 
-            for _, row in portfolio_df.iterrows():
-                if kelly_sum + row["Kelly_%"] <= 100.0:
-                    selected.append(row)
-                    kelly_sum += row["Kelly_%"]
-                else:
-                    break
-            final_df = pd.DataFrame(selected)
-            st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
-            st.dataframe(final_df.reset_index(drop=True))
+            progress.progress((i + 1) / len(tickers))
+
+    # =============================
+    # MONTA PORTFÓLIO
+    # =============================
+    portfolio_df = pd.DataFrame(portfolio_rows)
+
+    if portfolio_df.empty:
+        st.warning("Nenhum ticker válido encontrado.")
+        st.stop()
+
+    portfolio_df = portfolio_df.sort_values("EV_ajustado", ascending=False)
+
+    selected = []
+    kelly_sum = 0.0
+
+    for _, row in portfolio_df.iterrows():
+        if kelly_sum + row["Kelly_%"] <= 100.0:
+            selected.append(row)
+            kelly_sum += row["Kelly_%"]
+        else:
+            break
+
+    final_df = pd.DataFrame(selected)
+
+    # =============================
+    # EV DA CARTEIRA
+    # =============================
+    final_df["w"] = final_df["Kelly_%"] / 100
+
+    EV_carteira = (final_df["w"] * final_df["EV_ajustado"]).sum()
+    EV_dia = EV_carteira / horizon
+    EV_anual = (1 + EV_carteira) ** (252 / horizon) - 1
+
+    st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
+
+    st.metric(
+        f"EV esperado da carteira (H = {horizon} dias)",
+        f"{EV_carteira:.2%}"
+    )
+
+    st.metric(
+        "EV médio diário (aprox.)",
+        f"{EV_dia:.3%}"
+    )
+
+    st.metric(
+        "EV anualizado (composto)",
+        f"{EV_anual:.2%}"
+    )
+
+    st.dataframe(final_df.reset_index(drop=True))
+
 
 
 
