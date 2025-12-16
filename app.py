@@ -234,7 +234,7 @@ if st.button("Rodar modelo"):
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
 
-    feats = ar_garch_features(data["Close"])
+    feats = ar_garch_features_safe(data["Close"])
     df = pd.concat([data, feats], axis=1).dropna()
 
     tp_list = np.linspace(0.02, 0.10, 6)
