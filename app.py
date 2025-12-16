@@ -45,29 +45,6 @@ def ar_garch_features_safe(close):
 
     return df.dropna()
 
-
-    # ===== AR(1) =====
-    ar_model = AutoReg(log_ret, lags=1, old_names=False).fit()
-    mu_hat = ar_model.fittedvalues
-
-    # ===== GARCH(1,1) =====
-    garch = arch_model(
-        log_ret * 100,
-        mean="Zero",
-        vol="GARCH",
-        p=1, q=1,
-        dist="normal"
-    ).fit(disp="off")
-
-    sigma_hat = garch.conditional_volatility / 100
-
-    df = pd.DataFrame(index=log_ret.index)
-    df["mu_ar"] = mu_hat
-    df["sigma_garch"] = sigma_hat
-    df["z_score"] = log_ret / sigma_hat
-
-    return df.dropna()
-
 def prob_tp_sl(mu, sigma, tp, sl, horizon):
     mu_h = mu * horizon
     sigma_h = sigma * np.sqrt(horizon)
@@ -186,7 +163,7 @@ def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
     results = []
 
     mu = feats["mu_ar"].iloc[-1]
-    sigma = feats["sigma_garch"].iloc[-1]
+    sigma = feats["sigma"].iloc[-1]
 
     for tp in tp_list:
         for sl in sl_list:
@@ -240,7 +217,7 @@ if st.button("Rodar modelo"):
     tp_list = np.linspace(0.02, 0.10, 6)
     sl_list = np.linspace(0.01, 0.06, 6)
 
-    res = evaluate_tp_sl(df, feats, tp_list, sl_list, horizon)
+    res = evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon)
 
     if res.empty:
         st.warning("Nenhuma combinação viável.")
