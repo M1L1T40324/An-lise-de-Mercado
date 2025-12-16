@@ -7,6 +7,67 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier
 from sklearn.metrics import roc_auc_score
+from arch import arch_model
+from statsmodels.tsa.ar_model import AutoReg
+from scipy.stats import norm
+
+def ar_garch_features(close):
+    close = close.astype(float)
+    log_ret = np.log(close / close.shift(1)).dropna()
+
+    # ===== AR(1) =====
+    ar_model = AutoReg(log_ret, lags=1, old_names=False).fit()
+    mu_hat = ar_model.fittedvalues
+
+    # ===== GARCH(1,1) =====
+    garch = arch_model(
+        log_ret * 100,
+        mean="Zero",
+        vol="GARCH",
+        p=1, q=1,
+        dist="normal"
+    ).fit(disp="off")
+
+    sigma_hat = garch.conditional_volatility / 100
+
+    df = pd.DataFrame(index=log_ret.index)
+    df["mu_ar"] = mu_hat
+    df["sigma_garch"] = sigma_hat
+    df["z_score"] = log_ret / sigma_hat
+
+    return df.dropna()
+
+def prob_tp_sl(mu, sigma, tp, sl, horizon):
+    mu_h = mu * horizon
+    sigma_h = sigma * np.sqrt(horizon)
+
+    p_tp = 1 - norm.cdf((tp - mu_h) / sigma_h)
+    p_sl = norm.cdf((-sl - mu_h) / sigma_h)
+
+    # normalização condicional
+    total = p_tp + p_sl
+    if total == 0:
+        return 0.0, 0.0
+
+    return p_tp / total, p_sl / total
+
+def levy_tail_penalty(tp, sigma, alpha=3.0, jump_intensity=0.02):
+    """
+    Penaliza TP agressivo considerando cauda pesada
+    """
+    tail_prob = (tp / sigma) ** (-alpha)
+    crash_risk = jump_intensity * tail_prob
+
+    penalty = max(0, 1 - crash_risk)
+    return penalty
+
+def compute_ev(tp, sl, p_tp, p_sl):
+    return p_tp * tp - p_sl * sl
+
+def kelly_fraction(tp, sl, p):
+    b = tp / sl
+    return max((p * (b + 1) - 1) / b, 0)
+
 
 # =========================
 # 1. GBM FEATURE ENGINEERING
@@ -90,51 +151,39 @@ def train_model(X, y, min_samples=150):
 # 4. TP/SL GRID SEARCH (COM RISCO)
 # =========================
 
-def evaluate_tp_sl(df, features_df, tp_list, sl_list, horizon):
+def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
     results = []
 
-    sigma_ref = features_df["sigma_gbm"].iloc[-1]
-    max_tp_realista = 2 * sigma_ref      # filtro físico
-    kelly_frac = 0.3                     # Kelly fracionado
+    mu = feats["mu_ar"].iloc[-1]
+    sigma = feats["sigma_garch"].iloc[-1]
 
     for tp in tp_list:
-        if tp > max_tp_realista:
-            continue
-
         for sl in sl_list:
-            y = label_tp_sl(df[["Open", "High", "Low", "Close"]], tp, sl, horizon).dropna()
-            if len(y) < 80:
+
+            p_tp, p_sl = prob_tp_sl(mu, sigma, tp, sl, horizon)
+
+            if p_tp <= 0 or p_sl <= 0:
                 continue
 
-            X = features_df.loc[y.index]
+            EV = compute_ev(tp, sl, p_tp, p_sl)
 
-            try:
-                model, auc = train_model(X, y)
-            except:
-                continue
+            # Lévy penalty
+            penalty = levy_tail_penalty(tp, sigma)
 
-            prob_tp = model.predict_proba(X.iloc[-1:])[0, 1]
+            EV_adj = EV * penalty
 
-            # EV clássico
-            EV = prob_tp * tp - (1 - prob_tp) * sl
-
-            # Kelly
-            b = tp / sl
-            q = 1 - prob_tp
-            kelly = (b * prob_tp - q) / b if b > 0 else 0
-            kelly = max(0, kelly * kelly_frac)
-
-            # EV ajustado ao risco
-            EV_adj = EV * kelly
+            kelly = kelly_fraction(tp, sl, p_tp)
+            kelly = min(kelly, 0.3)  # Kelly fracionado
 
             results.append({
                 "TP": tp,
                 "SL": sl,
-                "Prob_TP": prob_tp,
+                "Prob_TP": p_tp,
+                "Prob_SL": p_sl,
                 "EV": EV,
                 "EV_adj": EV_adj,
                 "Kelly_frac": kelly,
-                "AUC": auc
+                "Levy_penalty": penalty
             })
 
     return pd.DataFrame(results)
@@ -154,7 +203,7 @@ if st.button("Rodar modelo"):
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
 
-    feats = gbm_features(data["Close"])
+    feats = ar_garch_features(data["Close"])
     df = pd.concat([data, feats], axis=1).dropna()
 
     tp_list = np.linspace(0.02, 0.10, 6)
@@ -206,13 +255,7 @@ if st.button("Rodar scan e montar portfólio"):
                 if len(df) < 300:
                     continue
 
-                res = evaluate_tp_sl(
-                    df,
-                    feats,
-                    tp_list=np.linspace(0.03, 0.15, 7),
-                    sl_list=np.linspace(0.01, 0.10, 7),
-                    horizon=horizon
-                )
+                res = evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon)
 
                 if res.empty:
                     continue
@@ -260,5 +303,6 @@ if st.button("Rodar scan e montar portfólio"):
 
     st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
     st.dataframe(final_df.reset_index(drop=True))
+
 
 
