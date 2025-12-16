@@ -6,13 +6,45 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier
 from sklearn.metrics import roc_auc_score
-from arch import arch_model
+try:
+    from arch import arch_model
+    ARCH_OK = True
+except:
+    ARCH_OK = False
+
 from statsmodels.tsa.ar_model import AutoReg
 from scipy.stats import norm
 
-def ar_garch_features(close):
+def ewma_volatility(returns, lambda_=0.94):
+    var = returns.ewm(alpha=1 - lambda_).var()
+    return np.sqrt(var)
+    
+def ar_garch_features_safe(close):
     close = close.astype(float)
     log_ret = np.log(close / close.shift(1)).dropna()
+
+    # AR(1)
+    ar = AutoReg(log_ret, lags=1, old_names=False).fit()
+    mu_hat = ar.fittedvalues
+
+    if ARCH_OK:
+        garch = arch_model(
+            log_ret * 100,
+            mean="Zero",
+            vol="GARCH",
+            p=1, q=1,
+            dist="normal"
+        ).fit(disp="off")
+        sigma_hat = garch.conditional_volatility / 100
+    else:
+        sigma_hat = ewma_volatility(log_ret)
+
+    df = pd.DataFrame(index=log_ret.index)
+    df["mu_ar"] = mu_hat
+    df["sigma"] = sigma_hat
+
+    return df.dropna()
+
 
     # ===== AR(1) =====
     ar_model = AutoReg(log_ret, lags=1, old_names=False).fit()
@@ -302,6 +334,7 @@ if st.button("Rodar scan e montar portfólio"):
 
     st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
     st.dataframe(final_df.reset_index(drop=True))
+
 
 
 
