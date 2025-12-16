@@ -45,19 +45,36 @@ def ar_garch_features_safe(close):
 
     return df.dropna()
 
-def prob_tp_sl(mu, sigma, tp, sl, horizon):
-    mu_h = mu * horizon
-    sigma_h = sigma * np.sqrt(horizon)
+def prob_tp_sl(mu, sigma, tp, sl, horizon, n_sim=3000):
+    tp_hit = 0
+    sl_hit = 0
 
-    p_tp = 1 - norm.cdf((tp - mu_h) / sigma_h)
-    p_sl = norm.cdf((-sl - mu_h) / sigma_h)
+    for _ in range(n_sim):
+        path = np.cumsum(
+            mu + sigma * np.random.randn(horizon)
+        )
 
-    # normalização condicional
-    total = p_tp + p_sl
+        if np.any(path >= tp):
+            tp_time = np.argmax(path >= tp)
+        else:
+            tp_time = np.inf
+
+        if np.any(path <= -sl):
+            sl_time = np.argmax(path <= -sl)
+        else:
+            sl_time = np.inf
+
+        if tp_time < sl_time:
+            tp_hit += 1
+        elif sl_time < tp_time:
+            sl_hit += 1
+
+    total = tp_hit + sl_hit
     if total == 0:
         return 0.0, 0.0
 
-    return p_tp / total, p_sl / total
+    return tp_hit / total, sl_hit / total
+
 
 def levy_tail_penalty(tp, sigma, alpha=3.0, jump_intensity=0.02):
     """
@@ -168,20 +185,27 @@ def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
     for tp in tp_list:
         for sl in sl_list:
 
-            p_tp, p_sl = prob_tp_sl(mu, sigma, tp, sl, horizon)
+            tp_eff = tp / np.sqrt(horizon)
+            sl_eff = sl / np.sqrt(horizon)
+            p_tp, p_sl = prob_tp_sl(mu, sigma, tp_eff, sl_eff, horizon)
+
 
             if p_tp <= 0 or p_sl <= 0:
                 continue
 
             EV = compute_ev(tp, sl, p_tp, p_sl)
 
-            # Lévy penalty
-            penalty = levy_tail_penalty(tp, sigma)
-
+            penalty = levy_tail_penalty(
+                tp,
+                sigma * np.sqrt(horizon),
+                alpha=2.5,
+                jump_intensity=0.05
+            )
             EV_adj = EV * penalty
 
-            kelly = kelly_fraction(tp, sl, p_tp)
-            kelly = min(kelly, 0.3)  # Kelly fracionado
+            kelly_raw = kelly_fraction(tp, sl, p_tp)
+            kelly = min(kelly_raw / np.sqrt(horizon), 0.15)
+            # Kelly fracionado
 
             results.append({
                 "TP": tp,
