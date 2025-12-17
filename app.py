@@ -71,36 +71,46 @@ def ar_garch_features_safe(close):
 
     return df.dropna()
 
-def prob_tp_sl(mu, sigma, tp, sl, horizon, n_sim=3000):
+def prob_tp_sl_full(mu, sigma, tp, sl, horizon, n_sim=3000):
     tp_hit = 0
     sl_hit = 0
+    none_hit = 0
 
     for _ in range(n_sim):
         path = np.cumsum(
             mu + sigma * np.random.randn(horizon)
         )
 
-        if np.any(path >= tp):
-            tp_time = np.argmax(path >= tp)
-        else:
-            tp_time = np.inf
+        tp_idx = np.where(path >= tp)[0]
+        sl_idx = np.where(path <= -sl)[0]
 
-        if np.any(path <= -sl):
-            sl_time = np.argmax(path <= -sl)
-        else:
-            sl_time = np.inf
+        if len(tp_idx) > 0 and len(sl_idx) > 0:
+            if tp_idx[0] < sl_idx[0]:
+                tp_hit += 1
+            else:
+                sl_hit += 1
 
-        if tp_time < sl_time:
+        elif len(tp_idx) > 0:
             tp_hit += 1
-        elif sl_time < tp_time:
+
+        elif len(sl_idx) > 0:
             sl_hit += 1
 
-    total = tp_hit + sl_hit
-    if total == 0:
-        return 0.0, 0.0
+        else:
+            none_hit += 1
 
-    return tp_hit / total, sl_hit / total
+    p_tp = tp_hit / n_sim
+    p_sl = sl_hit / n_sim
+    p_none = none_hit / n_sim
 
+    return p_tp, p_sl, p_none
+    
+def compute_ev_full(tp, sl, p_tp, p_sl, p_none, time_penalty=0.001):
+    return (
+        p_tp * tp
+        - p_sl * sl
+        - p_none * time_penalty
+    )
 
 def levy_tail_penalty(tp, sigma, alpha=3.0, jump_intensity=0.02):
     """
@@ -115,11 +125,11 @@ def levy_tail_penalty(tp, sigma, alpha=3.0, jump_intensity=0.02):
 def compute_ev(tp, sl, p_tp, p_sl):
     return p_tp * tp - p_sl * sl
 
-def kelly_fraction(tp, sl, p):
+def kelly_fraction_full(tp, sl, EV):
     b = tp / sl
-    return max((p * (b + 1) - 1) / b, 0)
-
-
+    if EV <= 0:
+        return 0.0
+    return max(EV / sl, 0)
 # =========================
 # 1. GBM FEATURE ENGINEERING
 # =========================
@@ -471,13 +481,13 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
 
             if p_tp <= 0 or p_sl <= 0:
                 continue
-
-            EV_sim = compute_ev(tp, sl, p_tp, p_sl)
+                
+            EV_sim = compute_ev_full(tp, sl, p_tp, p_sl, p_none)
             kelly_sim = kelly_fraction(tp, sl, p_tp)
             AGGRESSIVENESS = 1.8  # ajuste fino: 1.3 conservador | 2.0 agressivo
             MAX_KELLY_PER_ASSET = 0.25  # 25%
             kelly_eff = AGGRESSIVENESS * kelly_sim / np.sqrt(horizon)
-            kelly_eff = min(kelly_eff, MAX_KELLY_PER_ASSET)
+            kelly_eff = min(kelly_raw / np.sqrt(horizon), kelly_cap)
 
             sim_rows.append({
                 "Ticker": row["Ticker"],
@@ -485,7 +495,8 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                 "SL": sl,
                 "Prob_TP": p_tp,
                 "EV_ajustado": EV_sim,
-                "Kelly_%": kelly_eff * 100
+                "Kelly_%": kelly_eff * 100,
+                "Prob_NONE": p_none,
             })
 
     sim_df = pd.DataFrame(sim_rows)
