@@ -507,10 +507,10 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                 "Kelly_%": kelly_eff * 100,
             })
 
-            sim_df = pd.DataFrame(sim_rows)
-            if sim_df.empty:
-                st.warning("Nenhuma estratégia válida após simulação.")
-                st.stop()
+        sim_df = pd.DataFrame(sim_rows)
+        if sim_df.empty:
+            st.warning("Nenhuma estratégia válida após simulação.")
+            st.stop()
 
     # =============================
     # MONTA PORTFÓLIO FINAL
