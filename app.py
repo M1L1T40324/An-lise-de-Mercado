@@ -415,8 +415,7 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
 
                 if res.empty:
                     continue
-                res["penalty"] = np.minimum(1.0, res["TP"] / res["SL"])
-                res["EV_adj"] = res["EV_adj"] * res["penalty"]
+               res["penalty"] = np.minimum(1.0, np.sqrt(res["TP"] / res["SL"]))
 
                 if res.empty:
                     continue
@@ -478,14 +477,12 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
             p_tp, p_sl = prob_tp_sl(
                 mu, sigma, tp, sl, horizon, n_sim=5000
             )
-
             if p_tp <= 0 or p_sl <= 0:
                 continue
-                
             EV_sim = compute_ev_full(tp, sl, p_tp, p_sl, p_none)
             kelly_sim = kelly_fraction(tp, sl, p_tp)
-            AGGRESSIVENESS = 1.8  # ajuste fino: 1.3 conservador | 2.0 agressivo
-            MAX_KELLY_PER_ASSET = 0.25  # 25%
+            AGGRESSIVENESS = 1.8
+            MAX_KELLY_PER_ASSET = 0.25
             kelly_eff = AGGRESSIVENESS * kelly_sim / np.sqrt(horizon)
             kelly_eff = min(kelly_raw / np.sqrt(horizon), kelly_cap)
 
