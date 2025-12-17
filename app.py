@@ -322,9 +322,7 @@ if st.button("Rodar modelo"):
         f"EV ajustado {best.EV_adj:.2%}, Kelly {best.Kelly_frac:.2%}"
     )
 
-st.divider()
-
-st.markdown("### 📥 Entrada de tickers")
+st.sidebar.markdown("### 📥 Entrada de tickers")
 
 uploaded_file = st.file_uploader(
     "Upload CSV ou TXT com tickers",
@@ -340,9 +338,9 @@ if uploaded_file is not None:
     else:
         raw_tickers = uploaded_file.read().decode("utf-8")
 
-st.subheader("📦 Scan multi-ticker (portfólio ótimo)")
+st.sidebar.subheader("📦 Scan multi-ticker (portfólio ótimo)")
 
-if st.button("Rodar scan e montar portfólio"):
+if st.sidebar.button("Rodar scan e montar portfólio"):
 
     raw_tickers = st.text_area(
         "Tickers (vírgula ou quebra de linha)",
@@ -356,23 +354,27 @@ if st.button("Rodar scan e montar portfólio"):
         if t.strip() != ""
     ]
 
+    # =============================
+    # FASE 1 — SCAN DETERMINÍSTICO
+    # =============================
     portfolio_rows = []
 
     progress = st.progress(0)
     status = st.empty()
 
-    with st.spinner("Rodando modelos..."):
+    with st.spinner("Fase 1: Scan determinístico..."):
         for i, sym in enumerate(tickers):
             try:
-                status.text(f"Processando {sym} ({i+1}/{len(tickers)})")
+                status.text(f"[Fase 1] {sym} ({i+1}/{len(tickers)})")
 
-                data = yf.download(sym, period="5y", auto_adjust=True, progress=False)
+                data = yf.download(
+                    sym, period="5y", auto_adjust=True, progress=False
+                )
 
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
 
-                required_cols = {"Open", "High", "Low", "Close"}
-                if not required_cols.issubset(data.columns):
+                if not {"Open", "High", "Low", "Close"}.issubset(data.columns):
                     continue
 
                 feats = ar_garch_features_safe(data["Close"])
@@ -384,6 +386,7 @@ if st.button("Rodar scan e montar portfólio"):
                 tp_list = np.linspace(0.02, 0.10, 6)
                 sl_list = np.linspace(0.01, 0.06, 6)
 
+                # 👉 USO DETERMINÍSTICO
                 res = evaluate_tp_sl_ar_garch(
                     df, feats, tp_list, sl_list, horizon
                 )
@@ -391,15 +394,18 @@ if st.button("Rodar scan e montar portfólio"):
                 if res.empty:
                     continue
 
-                best = res.sort_values("EV_adj", ascending=False).iloc[0]
+                best = res.sort_values(
+                    "EV_adj", ascending=False
+                ).iloc[0]
 
                 portfolio_rows.append({
                     "Ticker": sym,
                     "TP": best.TP,
                     "SL": best.SL,
-                    "Prob_TP": best.Prob_TP,
-                    "EV_ajustado": best.EV_adj,
-                    "Kelly_%": best.Kelly_frac * 100
+                    "mu": feats["mu_ar"].iloc[-1],
+                    "sigma": feats["sigma"].iloc[-1],
+                    "EV_det": best.EV_adj,
+                    "Kelly_det": best.Kelly_frac
                 })
 
             except Exception:
@@ -407,21 +413,68 @@ if st.button("Rodar scan e montar portfólio"):
 
             progress.progress((i + 1) / len(tickers))
 
-    # =============================
-    # MONTA PORTFÓLIO
-    # =============================
     portfolio_df = pd.DataFrame(portfolio_rows)
 
     if portfolio_df.empty:
         st.warning("Nenhum ticker válido encontrado.")
         st.stop()
 
-    portfolio_df = portfolio_df.sort_values("EV_ajustado", ascending=False)
+    # Rank determinístico
+    portfolio_df = portfolio_df.sort_values(
+        "EV_det", ascending=False
+    )
+
+    # Seleciona apenas os melhores (ex: top 10)
+    top_n = min(10, len(portfolio_df))
+    candidates_df = portfolio_df.head(top_n).copy()
+
+    # =============================
+    # FASE 2 — SIMULAÇÃO (APENAS TOPS)
+    # =============================
+    sim_rows = []
+
+    with st.spinner("Fase 2: Simulações Monte Carlo..."):
+        for _, row in candidates_df.iterrows():
+            mu = row["mu"]
+            sigma = row["sigma"]
+            tp = row["TP"]
+            sl = row["SL"]
+
+            # 👉 AGORA SIM: simulação
+            p_tp, p_sl = prob_tp_sl(
+                mu, sigma, tp, sl, horizon, n_sim=5000
+            )
+
+            if p_tp <= 0 or p_sl <= 0:
+                continue
+
+            EV_sim = compute_ev(tp, sl, p_tp, p_sl)
+            kelly_sim = kelly_fraction(tp, sl, p_tp)
+
+            sim_rows.append({
+                "Ticker": row["Ticker"],
+                "TP": tp,
+                "SL": sl,
+                "Prob_TP": p_tp,
+                "EV_ajustado": EV_sim,
+                "Kelly_%": min(kelly_sim / np.sqrt(horizon), 0.15) * 100
+            })
+
+    sim_df = pd.DataFrame(sim_rows)
+
+    if sim_df.empty:
+        st.warning("Nenhuma estratégia válida após simulação.")
+        st.stop()
+
+    # =============================
+    # MONTA PORTFÓLIO FINAL
+    # =============================
+    sim_df = sim_df.sort_values("EV_ajustado", ascending=False)
 
     selected = []
     kelly_sum = 0.0
 
-    for _, row in portfolio_df.iterrows():
+    for _, row in sim_df.iterrows():
         if kelly_sum + row["Kelly_%"] <= 100.0:
             selected.append(row)
             kelly_sum += row["Kelly_%"]
@@ -457,6 +510,7 @@ if st.button("Rodar scan e montar portfólio"):
     )
 
     st.dataframe(final_df.reset_index(drop=True))
+
 
 
 
