@@ -444,7 +444,7 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
         returns_df = returns_df.dropna(axis=0, how="any")
         corr_matrix = returns_df.corr()
 
-    MAX_CORR = 0.6
+    MAX_CORR = 0.75
     
     # Seleciona apenas os melhores (ex: top 10)
     top_n = min(10, len(portfolio_df))
@@ -472,6 +472,10 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
 
             EV_sim = compute_ev(tp, sl, p_tp, p_sl)
             kelly_sim = kelly_fraction(tp, sl, p_tp)
+            AGGRESSIVENESS = 1.8  # ajuste fino: 1.3 conservador | 2.0 agressivo
+            MAX_KELLY_PER_ASSET = 0.25  # 25%
+            kelly_eff = AGGRESSIVENESS * kelly_sim / np.sqrt(horizon)
+            kelly_eff = min(kelly_eff, MAX_KELLY_PER_ASSET)
 
             sim_rows.append({
                 "Ticker": row["Ticker"],
@@ -479,7 +483,7 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                 "SL": sl,
                 "Prob_TP": p_tp,
                 "EV_ajustado": EV_sim,
-                "Kelly_%": min(kelly_sim / np.sqrt(horizon), 0.15) * 100
+                "Kelly_%": kelly_eff * 100
             })
 
     sim_df = pd.DataFrame(sim_rows)
@@ -507,7 +511,8 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                     break
         if not ok:
             continue
-        if kelly_sum + row["Kelly_%"] <= 100.0:
+        TARGET_KELLY = 0.6  # 60% do capital
+        if kelly_sum + row["Kelly_%"] <= TARGET_KELLY * 100:
             selected.append(row)
             kelly_sum += row["Kelly_%"]
         else:
