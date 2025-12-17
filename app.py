@@ -11,9 +11,32 @@ try:
     ARCH_OK = True
 except:
     ARCH_OK = False
-
 from statsmodels.tsa.ar_model import AutoReg
 from scipy.stats import norm
+
+def prob_tp_sl_deterministic(mu, sigma, tp, sl, horizon):
+    """
+    Probabilidade determinística de atingir TP ou SL
+    assumindo retornos normais agregados no horizonte.
+    """
+    mu_h = mu * horizon
+    sigma_h = sigma * np.sqrt(horizon)
+
+    if sigma_h <= 0:
+        return 0.0, 0.0
+
+    z_tp = (tp - mu_h) / sigma_h
+    z_sl = (-sl - mu_h) / sigma_h
+
+    p_tp = 1 - norm.cdf(z_tp)
+    p_sl = norm.cdf(z_sl)
+
+    total = p_tp + p_sl
+    if total == 0:
+        return 0.0, 0.0
+
+    return p_tp / total, p_sl / total
+
 
 def ewma_volatility(returns, lambda_=0.94):
     var = returns.ewm(alpha=1 - lambda_).var()
@@ -140,7 +163,6 @@ def label_tp_sl(df, tp, sl, horizon):
 
     return pd.Series(y, index=df.index[:len(y)])
 
-
 # =========================
 # 3. TRAIN XGBOOST MODEL
 # =========================
@@ -176,6 +198,32 @@ def train_model(X, y, min_samples=150):
 # 4. TP/SL GRID SEARCH (COM RISCO)
 # =========================
 
+def simulate_strategy(mu, sigma, tp, sl, horizon, n_sim=10000):
+    pnl = []
+
+    for _ in range(n_sim):
+        path = np.cumsum(mu + sigma * np.random.randn(horizon))
+
+        if np.any(path >= tp):
+            pnl.append(tp)
+        elif np.any(path <= -sl):
+            pnl.append(-sl)
+        else:
+            pnl.append(path[-1])
+
+    return np.array(pnl)
+
+
+def risk_metrics(pnl, alpha=0.95):
+    cum = np.cumsum(pnl)
+    dd = cum - np.maximum.accumulate(cum)
+
+    return {
+        "Max_Drawdown": dd.min(),
+        "CVaR": pnl[pnl <= np.quantile(pnl, 1 - alpha)].mean(),
+        "Prob_Ruina": np.mean(pnl < dd.min())
+    }
+
 def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
     results = []
 
@@ -185,29 +233,40 @@ def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
     for tp in tp_list:
         for sl in sl_list:
 
-            tp_eff = tp / np.sqrt(horizon)
-            sl_eff = sl / np.sqrt(horizon)
-            p_tp, p_sl = prob_tp_sl(mu, sigma, tp_eff, sl_eff, horizon)
+            # --- PROBABILIDADE DETERMINÍSTICA ---
+            p_tp, p_sl = prob_tp_sl_deterministic(
+                mu,
+                sigma,
+                tp,
+                sl,
+                horizon
+            )
 
             if p_tp <= 0 or p_sl <= 0:
                 continue
 
             EV = compute_ev(tp, sl, p_tp, p_sl)
-            sl_penalty = min(1.0, sl / (2 * sigma * np.sqrt(horizon)))
+
+            # Penalização por SL irrealista
+            sl_penalty = min(
+                1.0,
+                sl / (2 * sigma * np.sqrt(horizon))
+            )
             EV *= sl_penalty
 
-
+            # Penalização de cauda (Lévy)
             penalty = levy_tail_penalty(
                 tp,
                 sigma * np.sqrt(horizon),
                 alpha=2.5,
                 jump_intensity=0.05
             )
+
             EV_adj = EV * penalty
 
+            # Kelly fracionado e ajustado por horizonte
             kelly_raw = kelly_fraction(tp, sl, p_tp)
             kelly = min(kelly_raw / np.sqrt(horizon), 0.15)
-            # Kelly fracionado
 
             results.append({
                 "TP": tp,
@@ -221,6 +280,7 @@ def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
             })
 
     return pd.DataFrame(results)
+
 
 
 # =========================
@@ -282,13 +342,15 @@ if uploaded_file is not None:
 
 st.subheader("📦 Scan multi-ticker (portfólio ótimo)")
 
-if st.button("Rodar scan e montar portfólio"):
+raw_tickers = st.text_area(
+    "Tickers (vírgula ou quebra de linha)",
+    "PETR4.SA, VALE3.SA, ITUB4.SA\nBBDC4.SA, BBAS3.SA, WEGE3.SA",
+    height=200
+)
 
-    raw_tickers = st.text_area(
-        "Tickers (vírgula ou quebra de linha)",
-        raw_tickers,
-        height=200
-    )
+horizon = st.number_input("Horizonte (dias)", 5, 30, 10)
+
+if st.button("Rodar scan e montar portfólio"):
 
     tickers = [
         t.strip().upper()
@@ -298,21 +360,15 @@ if st.button("Rodar scan e montar portfólio"):
 
     portfolio_rows = []
 
-    progress = st.progress(0)
-    status = st.empty()
-
     with st.spinner("Rodando modelos..."):
-        for i, sym in enumerate(tickers):
+        for sym in tickers:
             try:
-                status.text(f"Processando {sym} ({i+1}/{len(tickers)})")
-
-                data = yf.download(sym, period="5y", auto_adjust=True, progress=False)
+                data = yf.download(sym, period="5y", auto_adjust=True)
 
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
 
-                required_cols = {"Open", "High", "Low", "Close"}
-                if not required_cols.issubset(data.columns):
+                if not {"Open", "High", "Low", "Close"}.issubset(data.columns):
                     continue
 
                 feats = ar_garch_features_safe(data["Close"])
@@ -345,11 +401,6 @@ if st.button("Rodar scan e montar portfólio"):
             except Exception:
                 continue
 
-            progress.progress((i + 1) / len(tickers))
-
-    # =============================
-    # MONTA PORTFÓLIO
-    # =============================
     portfolio_df = pd.DataFrame(portfolio_rows)
 
     if portfolio_df.empty:
@@ -362,13 +413,17 @@ if st.button("Rodar scan e montar portfólio"):
     kelly_sum = 0.0
 
     for _, row in portfolio_df.iterrows():
-        if kelly_sum + row["Kelly_%"] <= 100.0:
+        if kelly_sum + row["Kelly_%"] <= 100:
             selected.append(row)
             kelly_sum += row["Kelly_%"]
         else:
             break
 
     final_df = pd.DataFrame(selected)
+
+    st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
+    st.dataframe(final_df.reset_index(drop=True))
+
 
     # =============================
     # EV DA CARTEIRA
