@@ -542,7 +542,6 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
         f"{EV_anual_aprox:.2%}"
     )
 
-    )
 
     st.dataframe(final_df.reset_index(drop=True))
 
