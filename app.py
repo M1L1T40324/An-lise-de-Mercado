@@ -342,15 +342,13 @@ if uploaded_file is not None:
 
 st.subheader("📦 Scan multi-ticker (portfólio ótimo)")
 
-raw_tickers = st.text_area(
-    "Tickers (vírgula ou quebra de linha)",
-    "PETR4.SA, VALE3.SA, ITUB4.SA\nBBDC4.SA, BBAS3.SA, WEGE3.SA",
-    height=200
-)
-
-horizon = st.number_input("Horizonte (dias)", 5, 30, 10)
-
 if st.button("Rodar scan e montar portfólio"):
+
+    raw_tickers = st.text_area(
+        "Tickers (vírgula ou quebra de linha)",
+        raw_tickers,
+        height=200
+    )
 
     tickers = [
         t.strip().upper()
@@ -360,15 +358,21 @@ if st.button("Rodar scan e montar portfólio"):
 
     portfolio_rows = []
 
+    progress = st.progress(0)
+    status = st.empty()
+
     with st.spinner("Rodando modelos..."):
-        for sym in tickers:
+        for i, sym in enumerate(tickers):
             try:
-                data = yf.download(sym, period="5y", auto_adjust=True)
+                status.text(f"Processando {sym} ({i+1}/{len(tickers)})")
+
+                data = yf.download(sym, period="5y", auto_adjust=True, progress=False)
 
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
 
-                if not {"Open", "High", "Low", "Close"}.issubset(data.columns):
+                required_cols = {"Open", "High", "Low", "Close"}
+                if not required_cols.issubset(data.columns):
                     continue
 
                 feats = ar_garch_features_safe(data["Close"])
@@ -401,6 +405,11 @@ if st.button("Rodar scan e montar portfólio"):
             except Exception:
                 continue
 
+            progress.progress((i + 1) / len(tickers))
+
+    # =============================
+    # MONTA PORTFÓLIO
+    # =============================
     portfolio_df = pd.DataFrame(portfolio_rows)
 
     if portfolio_df.empty:
@@ -413,17 +422,13 @@ if st.button("Rodar scan e montar portfólio"):
     kelly_sum = 0.0
 
     for _, row in portfolio_df.iterrows():
-        if kelly_sum + row["Kelly_%"] <= 100:
+        if kelly_sum + row["Kelly_%"] <= 100.0:
             selected.append(row)
             kelly_sum += row["Kelly_%"]
         else:
             break
 
     final_df = pd.DataFrame(selected)
-
-    st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
-    st.dataframe(final_df.reset_index(drop=True))
-
 
     # =============================
     # EV DA CARTEIRA
@@ -452,6 +457,7 @@ if st.button("Rodar scan e montar portfólio"):
     )
 
     st.dataframe(final_df.reset_index(drop=True))
+
 
 
 
