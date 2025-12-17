@@ -14,6 +14,9 @@ except:
 from statsmodels.tsa.ar_model import AutoReg
 from scipy.stats import norm
 
+def compute_returns(close):
+    return np.log(close / close.shift(1)).dropna()
+
 def prob_tp_sl_deterministic(mu, sigma, tp, sl, horizon):
     """
     Probabilidade determinística de atingir TP ou SL
@@ -358,7 +361,8 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
     # FASE 1 — SCAN DETERMINÍSTICO
     # =============================
     portfolio_rows = []
-
+    returns_dict = {}
+    
     progress = st.progress(0)
     status = st.empty()
 
@@ -370,7 +374,9 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                 data = yf.download(
                     sym, period="5y", auto_adjust=True, progress=False
                 )
-
+                ret = compute_returns(data["Close"])
+                returns_dict[sym] = ret
+                
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
 
@@ -424,6 +430,11 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
         "EV_det", ascending=False
     )
 
+    returns_df = pd.DataFrame(returns_dict).dropna()
+    corr_matrix = returns_df.corr()
+
+    MAX_CORR = 0.6
+    
     # Seleciona apenas os melhores (ex: top 10)
     top_n = min(10, len(portfolio_df))
     candidates_df = portfolio_df.head(top_n).copy()
@@ -473,13 +484,23 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
 
     selected = []
     kelly_sum = 0.0
-
     for _, row in sim_df.iterrows():
+        sym = row["Ticker"]
+        # verifica correlação com os já escolhidos
+        ok = True
+        for sel in selected:
+            corr = corr_matrix.loc[sym, sel["Ticker"]]
+            if corr > MAX_CORR:
+                ok = False
+                break
+        if not ok:
+            continue
         if kelly_sum + row["Kelly_%"] <= 100.0:
             selected.append(row)
             kelly_sum += row["Kelly_%"]
         else:
             break
+
 
     final_df = pd.DataFrame(selected)
 
