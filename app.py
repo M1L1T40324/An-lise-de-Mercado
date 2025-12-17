@@ -474,7 +474,7 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
             sl = row["SL"]
 
             # 👉 AGORA SIM: simulação
-            p_tp, p_sl = prob_tp_sl(
+            p_tp, p_sl = prob_tp_sl_full(
                 mu, sigma, tp, sl, horizon, n_sim=5000
             )
             if p_tp <= 0 or p_sl <= 0:
