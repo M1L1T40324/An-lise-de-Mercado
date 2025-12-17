@@ -371,11 +371,17 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
             try:
                 status.text(f"[Fase 1] {sym} ({i+1}/{len(tickers)})")
 
-                data = yf.download(
-                    sym, period="5y", auto_adjust=True, progress=False
-                )
-                ret = compute_returns(data["Close"])
+                data = yf.download(sym, period="5y", auto_adjust=True, progress=False)
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = data.columns.get_level_values(0)
+                if "Close" not in data.columns:
+                    continue
+                ret = np.log(data["Close"] / data["Close"].shift(1)).dropna()
+                # só aceita séries com tamanho mínimo
+                if len(ret) < 200:
+                    continue
                 returns_dict[sym] = ret
+
                 
                 if isinstance(data.columns, pd.MultiIndex):
                     data.columns = data.columns.get_level_values(0)
@@ -430,8 +436,13 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
         "EV_det", ascending=False
     )
 
-    returns_df = pd.DataFrame(returns_dict).dropna()
-    corr_matrix = returns_df.corr()
+    if len(returns_dict) < 2:
+        st.warning("Ativos insuficientes para cálculo de correlação.")
+        corr_matrix = None
+    else:
+        returns_df = pd.DataFrame(returns_dict)
+        returns_df = returns_df.dropna(axis=0, how="any")
+        corr_matrix = returns_df.corr()
 
     MAX_CORR = 0.6
     
@@ -489,10 +500,11 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
         # verifica correlação com os já escolhidos
         ok = True
         for sel in selected:
-            corr = corr_matrix.loc[sym, sel["Ticker"]]
-            if corr > MAX_CORR:
-                ok = False
-                break
+            if corr_matrix is not None:
+                corr = corr_matrix.loc[sym, sel["Ticker"]]
+                if corr > MAX_CORR:
+                    ok = False
+                    break
         if not ok:
             continue
         if kelly_sum + row["Kelly_%"] <= 100.0:
@@ -511,7 +523,7 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
 
     EV_carteira = (final_df["w"] * final_df["EV_ajustado"]).sum()
     EV_dia = EV_carteira / horizon
-    EV_anual = (1 + EV_carteira) ** (252 / horizon) - 1
+    EV_anual_aprox = EV_dia * 252
 
     st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
 
@@ -526,8 +538,10 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
     )
 
     st.metric(
-        "EV anualizado (composto)",
-        f"{EV_anual:.2%}"
+        "EV anualizado (linear, conservador)",
+        f"{EV_anual_aprox:.2%}"
+    )
+
     )
 
     st.dataframe(final_df.reset_index(drop=True))
