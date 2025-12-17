@@ -324,7 +324,7 @@ if st.button("Rodar modelo"):
 
 st.sidebar.markdown("### 📥 Entrada de tickers")
 
-uploaded_file = st.file_uploader(
+uploaded_file = st.sidebar.file_uploader(
     "Upload CSV ou TXT com tickers",
     type=["csv", "txt"]
 )
