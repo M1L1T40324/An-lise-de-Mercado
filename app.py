@@ -472,35 +472,45 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
             sigma = row["sigma"]
             tp = row["TP"]
             sl = row["SL"]
-
-            # 👉 AGORA SIM: simulação
-            p_tp, p_sl = prob_tp_sl_full(
-                mu, sigma, tp, sl, horizon, n_sim=5000
+            
+            p_tp, p_sl, p_none = prob_tp_sl_full(
+                mu, sigma, tp, sl, horizon, n_sim=4000
             )
-            if p_tp <= 0 or p_sl <= 0:
+            # espaço amostral completo
+            if p_tp < 0.05:
                 continue
-            EV_sim = compute_ev_full(tp, sl, p_tp, p_sl, p_none)
-            kelly_sim = kelly_fraction(tp, sl, p_tp)
-            AGGRESSIVENESS = 1.8
+            
+            EV_sim = compute_ev_full(
+                tp, sl, p_tp, p_sl, p_none, time_penalty=0.0005
+            )
+            if EV_sim <= 0:
+                continue
+            b = tp / sl
+            kelly_raw = (p_tp * (b + 1) - 1) / b
+            kelly_raw = max(0, kelly_raw)
+            
+            AGGRESSIVENESS = 1.6
             MAX_KELLY_PER_ASSET = 0.25
-            kelly_eff = AGGRESSIVENESS * kelly_sim / np.sqrt(horizon)
-            kelly_eff = min(kelly_raw / np.sqrt(horizon), kelly_cap)
-
+            
+            kelly_eff = AGGRESSIVENESS * kelly_raw / np.sqrt(horizon)
+            kelly_eff = min(kelly_eff, MAX_KELLY_PER_ASSET)
+            if kelly_eff <= 0:
+                continue
             sim_rows.append({
                 "Ticker": row["Ticker"],
                 "TP": tp,
                 "SL": sl,
                 "Prob_TP": p_tp,
+                "Prob_SL": p_sl,
+                "Prob_NONE": p_none,
                 "EV_ajustado": EV_sim,
                 "Kelly_%": kelly_eff * 100,
-                "Prob_NONE": p_none,
             })
 
-    sim_df = pd.DataFrame(sim_rows)
-
-    if sim_df.empty:
-        st.warning("Nenhuma estratégia válida após simulação.")
-        st.stop()
+            sim_df = pd.DataFrame(sim_rows)
+            if sim_df.empty:
+                st.warning("Nenhuma estratégia válida após simulação.")
+                st.stop()
 
     # =============================
     # MONTA PORTFÓLIO FINAL
