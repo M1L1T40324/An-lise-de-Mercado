@@ -405,10 +405,12 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
 
                 if res.empty:
                     continue
+                res["penalty"] = np.minimum(1.0, res["TP"] / res["SL"])
+                res["EV_adj"] = res["EV_adj"] * res["penalty"]
 
-                best = res.sort_values(
-                    "EV_adj", ascending=False
-                ).iloc[0]
+                if res.empty:
+                    continue
+                best = res.sort_values("EV_adj", ascending=False).iloc[0]
 
                 portfolio_rows.append({
                     "Ticker": sym,
