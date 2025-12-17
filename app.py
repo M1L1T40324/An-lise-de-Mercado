@@ -415,7 +415,7 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
 
                 if res.empty:
                     continue
-               res["penalty"] = np.minimum(1.0, np.sqrt(res["TP"] / res["SL"])
+               res["penalty"] = np.minimum(1.0, np.sqrt(res["TP"] / res["SL"]))
 
                 if res.empty:
                     continue
