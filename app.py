@@ -71,36 +71,32 @@ def ar_garch_features_safe(close):
 
     return df.dropna()
 
-def prob_tp_sl(mu, sigma, tp, sl, horizon, n_sim=3000):
+def prob_tp_sl_full(mu, sigma, tp, sl, horizon, n_sim=5000):
     tp_hit = 0
     sl_hit = 0
+    flat = 0
+    flat_pnl = []
 
     for _ in range(n_sim):
-        path = np.cumsum(
-            mu + sigma * np.random.randn(horizon)
-        )
+        path = np.cumsum(mu + sigma * np.random.randn(horizon))
 
-        if np.any(path >= tp):
-            tp_time = np.argmax(path >= tp)
-        else:
-            tp_time = np.inf
+        hit_tp = np.any(path >= tp)
+        hit_sl = np.any(path <= -sl)
 
-        if np.any(path <= -sl):
-            sl_time = np.argmax(path <= -sl)
-        else:
-            sl_time = np.inf
-
-        if tp_time < sl_time:
+        if hit_tp and not hit_sl:
             tp_hit += 1
-        elif sl_time < tp_time:
+        elif hit_sl and not hit_tp:
             sl_hit += 1
+        else:
+            flat += 1
+            flat_pnl.append(path[-1])
 
-    total = tp_hit + sl_hit
-    if total == 0:
-        return 0.0, 0.0
+    p_tp = tp_hit / n_sim
+    p_sl = sl_hit / n_sim
+    p_flat = flat / n_sim
+    avg_flat = np.mean(flat_pnl) if flat_pnl else 0.0
 
-    return tp_hit / total, sl_hit / total
-
+    return p_tp, p_sl, p_flat, avg_flat
 
 def levy_tail_penalty(tp, sigma, alpha=3.0, jump_intensity=0.02):
     """
@@ -112,8 +108,14 @@ def levy_tail_penalty(tp, sigma, alpha=3.0, jump_intensity=0.02):
     penalty = max(0, 1 - crash_risk)
     return penalty
 
-def compute_ev(tp, sl, p_tp, p_sl):
-    return p_tp * tp - p_sl * sl
+def compute_ev_full(tp, sl, p_tp, p_sl, p_flat, avg_flat, time_penalty=0.0005):
+    return (
+        p_tp * tp
+        - p_sl * sl
+        + p_flat * avg_flat
+        - p_flat * time_penalty
+    )
+
 
 def kelly_fraction(tp, sl, p):
     b = tp / sl
@@ -169,6 +171,25 @@ def label_tp_sl(df, tp, sl, horizon):
 # =========================
 # 3. TRAIN XGBOOST MODEL
 # =========================
+
+def kelly_fraction_full(tp, sl, p_tp, p_sl, p_flat, avg_flat):
+    outcomes = np.array([tp, -sl, avg_flat])
+    probs = np.array([p_tp, p_sl, p_flat])
+
+    # remove probabilidades inválidas
+    mask = probs > 0
+    outcomes = outcomes[mask]
+    probs = probs[mask]
+
+    def growth(f):
+        return np.sum(probs * np.log(1 + f * outcomes))
+
+    fs = np.linspace(0, 2.0, 400)
+    g = [growth(f) for f in fs]
+
+    f_star = fs[np.argmax(g)]
+    return max(f_star, 0)
+
 
 def train_model(X, y, min_samples=150):
     data = pd.concat([X, y.rename("target")], axis=1).dropna()
@@ -235,6 +256,9 @@ def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
 
     for tp in tp_list:
         for sl in sl_list:
+            # --- filtro de payoff mínimo ---
+            if tp / sl < 1.2:
+                continue
 
             # --- PROBABILIDADE DETERMINÍSTICA ---
             p_tp, p_sl = prob_tp_sl_deterministic(
@@ -390,6 +414,10 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                     continue
 
                 feats = ar_garch_features_safe(data["Close"])
+                # --- filtro de volatilidade mínima ---
+                if feats["sigma"].iloc[-1] < feats["sigma"].quantile(0.4):
+                    continue
+
                 df = pd.concat([data, feats], axis=1).dropna()
 
                 if len(df) < 300:
@@ -461,17 +489,24 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
             sigma = row["sigma"]
             tp = row["TP"]
             sl = row["SL"]
-
+            
             # 👉 AGORA SIM: simulação
-            p_tp, p_sl = prob_tp_sl(
-                mu, sigma, tp, sl, horizon, n_sim=5000
+            p_tp, p_sl, p_flat, avg_flat = prob_tp_sl_full(
+                mu, sigma, tp, sl, horizon, n_sim=7000
             )
+            EV_sim = compute_ev_full(
+                tp, sl, p_tp, p_sl, p_flat, avg_flat
+            )
+
 
             if p_tp <= 0 or p_sl <= 0:
                 continue
 
             EV_sim = compute_ev(tp, sl, p_tp, p_sl)
-            kelly_sim = kelly_fraction(tp, sl, p_tp)
+            kelly_sim = kelly_fraction_full(
+                tp, sl, p_tp, p_sl, p_flat, avg_flat
+            )
+
 
             sim_rows.append({
                 "Ticker": row["Ticker"],
@@ -479,7 +514,7 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                 "SL": sl,
                 "Prob_TP": p_tp,
                 "EV_ajustado": EV_sim,
-                "Kelly_%": min(kelly_sim / np.sqrt(horizon), 0.15) * 100
+                "Kelly_%": min(kelly_sim, 0.40) * 100
             })
 
     sim_df = pd.DataFrame(sim_rows)
@@ -507,7 +542,8 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                     break
         if not ok:
             continue
-        if kelly_sum + row["Kelly_%"] <= 100.0:
+        TARGET_KELLY = 80.0  # % do capital total
+        if kelly_sum + row["Kelly_%"] <= TARGET_KELLY:
             selected.append(row)
             kelly_sum += row["Kelly_%"]
         else:
