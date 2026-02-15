@@ -33,7 +33,9 @@ def get_data(ticker):
     except:
         return None
 
+
 def estimate_params(data):
+
     returns = np.log(data["Close"] / data["Close"].shift(1)).dropna()
 
     if len(returns) < 50:
@@ -45,12 +47,10 @@ def estimate_params(data):
     except:
         mu_raw = float(returns.mean())
 
-    mu = float(0.6 * mu_raw)
-    mu = float(np.clip(mu, -0.02, 0.02))
-
+    mu = float(np.clip(0.6 * mu_raw, -0.02, 0.02))
     sigma = float(returns.std())
 
-    return mu, sigma, returns
+    return mu, sigma, returns.astype(float)
 
 
 def simulate_paths(mu, sigma):
@@ -72,22 +72,22 @@ def simulate_paths(mu, sigma):
 
 
 def prob_tp_sl(paths, tp, sl):
+
     tp_hits = np.any(paths >= tp, axis=1)
-    sl_hits = np.any(paths <= sl, axis=1)
+    p_tp = float(np.mean(tp_hits))
 
-    p_tp = np.mean(tp_hits)
-
-    # haircut estrutural
-    p_tp *= 0.90
+    p_tp *= 0.90  # haircut estrutural
     p_sl = 1 - p_tp
 
     return p_tp, p_sl
+
 
 def kelly_fraction(tp, sl, p):
     b = tp / abs(sl)
     q = 1 - p
     k = (b*p - q)/b
-    return max(k, 0)
+    return max(float(k), 0.0)
+
 
 # ============================================
 # EXECUÇÃO
@@ -100,21 +100,18 @@ for ticker in TICKERS:
 
     data = get_data(ticker)
     if data is None:
-        st.write(f"{ticker} sem dados.")
         continue
 
-    # Volume opcional (não trava tudo)
+    # Filtro de volume
     try:
         vol = data["Volume"].rolling(20).mean().iloc[-1]
-        if pd.notna(vol) and vol < MIN_VOLUME:
-            st.write(f"{ticker} removido por baixo volume.")
+        if pd.notna(vol) and float(vol) < MIN_VOLUME:
             continue
     except:
         pass
 
     mu, sigma, returns = estimate_params(data)
     if mu is None:
-        st.write(f"{ticker} sem dados suficientes.")
         continue
 
     paths = simulate_paths(mu, sigma)
@@ -123,88 +120,113 @@ for ticker in TICKERS:
     EV = p_tp*TP - p_sl*abs(SL)
 
     var = p_tp*(TP**2) + p_sl*(SL**2) - EV**2
-    std_strategy = np.sqrt(abs(var))
+    std_strategy = float(np.sqrt(abs(var)))
 
     if std_strategy == 0:
         continue
 
-    score = EV / std_strategy
+    score = float(EV / std_strategy)
     kelly = 0.5 * kelly_fraction(TP, SL, p_tp)
 
     results.append({
         "Ticker": ticker,
-        "EV": EV,
+        "EV": float(EV),
         "Score": score,
-        "Kelly": kelly
+        "Kelly": float(kelly)
     })
 
-    returns_dict[ticker] = returns
+    # GUARDA APENAS SERIES VÁLIDA
+    if isinstance(returns, pd.Series):
+        returns_dict[ticker] = returns.copy()
+
 
 # ============================================
-# VALIDAÇÃO ANTES DE ORDENAR
+# VALIDAÇÃO
 # ============================================
 
 if len(results) == 0:
-    st.error("Nenhum ativo passou nos filtros. Ajuste parâmetros.")
+    st.error("Nenhum ativo passou nos filtros.")
     st.stop()
 
 df = pd.DataFrame(results)
 
 if "Score" not in df.columns:
-    st.error("Erro interno: coluna Score não encontrada.")
+    st.error("Erro interno: coluna Score ausente.")
     st.stop()
 
 df = df.sort_values("Score", ascending=False)
 
+
 # ============================================
-# CORRELAÇÃO VIA DRAWDOWN
+# CORRELAÇÃO VIA DRAWDOWN (BLINDADA)
 # ============================================
 
-returns_df = pd.DataFrame(returns_dict)
+valid_returns = {
+    k: v for k, v in returns_dict.items()
+    if isinstance(v, pd.Series) and len(v) > 50
+}
 
-if returns_df.shape[1] > 1:
+if len(valid_returns) >= 2:
 
-    dd = returns_df.cumsum() - returns_df.cumsum().cummax()
-    corr_matrix = dd.corr()
+    returns_df = pd.concat(valid_returns, axis=1)
 
-    adjusted_rows = []
+    # Remove NaN alinhando datas
+    returns_df = returns_df.dropna()
 
-    for _, row in df.iterrows():
-        ticker = row["Ticker"]
+    if returns_df.shape[1] >= 2:
 
-        if ticker not in corr_matrix.columns:
-            continue
+        dd = returns_df.cumsum() - returns_df.cumsum().cummax()
+        corr_matrix = dd.corr()
 
-        avg_corr = corr_matrix[ticker].drop(ticker).mean()
-        corr_penalty = 1 - avg_corr
+        adjusted_rows = []
 
-        adj_score = row["Score"] * corr_penalty
-        adj_kelly = row["Kelly"] * corr_penalty
+        for _, row in df.iterrows():
 
-        adjusted_rows.append({
-            "Ticker": ticker,
-            "AdjScore": adj_score,
-            "Kelly": adj_kelly
-        })
+            ticker = row["Ticker"]
 
-    final_df = pd.DataFrame(adjusted_rows)
-    final_df = final_df.sort_values("AdjScore", ascending=False)
+            if ticker not in corr_matrix.columns:
+                continue
+
+            avg_corr = corr_matrix[ticker].drop(ticker).mean()
+            corr_penalty = float(1 - avg_corr)
+
+            adj_score = float(row["Score"] * corr_penalty)
+            adj_kelly = float(row["Kelly"] * corr_penalty)
+
+            adjusted_rows.append({
+                "Ticker": ticker,
+                "AdjScore": adj_score,
+                "Kelly": adj_kelly
+            })
+
+        if len(adjusted_rows) > 0:
+            final_df = pd.DataFrame(adjusted_rows)
+            final_df = final_df.sort_values("AdjScore", ascending=False)
+        else:
+            final_df = df.copy()
+            final_df["AdjScore"] = final_df["Score"]
+
+    else:
+        final_df = df.copy()
+        final_df["AdjScore"] = final_df["Score"]
 
 else:
     final_df = df.copy()
     final_df["AdjScore"] = final_df["Score"]
 
+
 # ============================================
-# NORMALIZAÇÃO DE EXPOSIÇÃO
+# NORMALIZAÇÃO
 # ============================================
 
-kelly_sum = final_df["Kelly"].sum()
+kelly_sum = float(final_df["Kelly"].sum())
 
-if kelly_sum > MAX_PORTFOLIO_EXPOSURE:
+if kelly_sum > 0 and kelly_sum > MAX_PORTFOLIO_EXPOSURE:
     scale = MAX_PORTFOLIO_EXPOSURE / kelly_sum
-    final_df["Kelly"] *= scale
+    final_df["Kelly"] = final_df["Kelly"] * scale
 
 final_df["Weight_%"] = final_df["Kelly"] * 100
+
 
 # ============================================
 # OUTPUT
