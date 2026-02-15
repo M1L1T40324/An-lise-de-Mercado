@@ -41,24 +41,35 @@ def estimate_params(data):
 
     try:
         model = AutoReg(returns, lags=1).fit()
-        mu_raw = model.params[0]
+        mu_raw = float(model.params.iloc[0])
     except:
-        mu_raw = returns.mean()
+        mu_raw = float(returns.mean())
 
-    mu = 0.6 * mu_raw
-    mu = np.clip(mu, -0.02, 0.02)
+    mu = float(0.6 * mu_raw)
+    mu = float(np.clip(mu, -0.02, 0.02))
 
-    sigma = returns.std()
+    sigma = float(returns.std())
 
     return mu, sigma, returns
 
+
 def simulate_paths(mu, sigma):
+
+    mu = float(mu)
+    sigma = float(sigma)
+
     dt = 1
+
     z = np.random.standard_t(df=5, size=(SIMS, HORIZON))
     z = z / np.sqrt(5/(5-2))
 
-    paths = np.cumsum(mu*dt + sigma*np.sqrt(dt)*z, axis=1)
+    drift = mu * dt
+    diffusion = sigma * np.sqrt(dt) * z
+
+    paths = np.cumsum(drift + diffusion, axis=1)
+
     return paths
+
 
 def prob_tp_sl(paths, tp, sl):
     tp_hits = np.any(paths >= tp, axis=1)
