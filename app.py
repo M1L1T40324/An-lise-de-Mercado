@@ -76,18 +76,6 @@ if tickers_input:
         upper_price = S0*np.exp((mu-0.5*sigma**2)*T + z_95*sigma*np.sqrt(T))
         
         risk_5_losses = (prob_sl_before_tp)**5
-        
-
-        if emotional_index > 0.05:
-            emotion = "🟢 Otimista"
-        elif emotional_index < -0.05:
-            emotion = "🔴 Estressado"
-        else:
-            emotion = "🟡 Neutro"
-
-        # =====================
-        # BACKTEST
-        # =====================
 
         wins = 0
         losses = 0
