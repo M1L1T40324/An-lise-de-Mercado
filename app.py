@@ -39,25 +39,45 @@ if tickers_input:
         
         log_returns = np.log(prices/prices.shift(1)).dropna()
         returns_dict[ticker] = log_returns
-
+        
         mu = float(log_returns.mean()*252)
         sigma = float(log_returns.std()*np.sqrt(252))
         
+        if sigma == 0:
+            continue
+            
         S0 = float(prices.iloc[-1])
         T = forecast_days/252
         
         expected_price = float(S0*np.exp(mu*T))
+        expected_return = expected_price/S0 - 1
         
         tp_price = S0*(1+tp_percent)
         sl_price = S0*(1-sl_percent)
         
-        d_tp = (np.log(tp_price/S0)-(mu-0.5*sigma**2)*T)/(sigma*np.sqrt(T))
-        prob_tp = float(1-norm.cdf(d_tp))
+        z_pos = (np.log(S0/S0)-(mu-0.5*sigma**2)*T)/(sigma*np.sqrt(T))
+        prob_positive = 1 - norm.cdf(z_pos)
         
-        d_sl = (np.log(sl_price/S0)-(mu-0.5*sigma**2)*T)/(sigma*np.sqrt(T))
-        prob_sl = float(norm.cdf(d_sl))
+        alpha = (2*mu)/(sigma**2)
         
-        emotional_index = float((expected_price/S0-1)*prob_tp - sigma*prob_sl)
+        try:
+            prob_tp_before_sl = (
+                1 - (sl_price/S0)**alpha
+            ) / (
+                (tp_price/S0)**alpha - (sl_price/S0)**alpha
+            )
+            except:
+                prob_tp_before_sl = 0.5
+            prob_sl_before_tp = 1 - prob_tp_before_sl
+            ev_trade = tp_percent*prob_tp_before_sl - sl_percent*prob_sl_before_tp
+            
+            z_95 = 1.96
+            lower_price = S0*np.exp((mu-0.5*sigma**2)*T - z_95*sigma*np.sqrt(T))
+            upper_price = S0*np.exp((mu-0.5*sigma**2)*T + z_95*sigma*np.sqrt(T))
+        
+            risk_5_losses = (prob_sl_before_tp)**5
+        
+            emotional_index = float((expected_price/S0-1)*prob_tp - sigma*prob_sl)
 
         if emotional_index > 0.05:
             emotion = "🟢 Otimista"
