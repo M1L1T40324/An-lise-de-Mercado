@@ -66,7 +66,7 @@ if tickers_input:
             ) / (
                 (tp_price/S0)**alpha - (sl_price/S0)**alpha
             )
-            except:
+        except:
                 prob_tp_before_sl = 0.5
         prob_sl_before_tp = 1 - prob_tp_before_sl
         ev_trade = tp_percent*prob_tp_before_sl - sl_percent*prob_sl_before_tp
