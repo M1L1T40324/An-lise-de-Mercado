@@ -1,236 +1,123 @@
+import streamlit as st
+import yfinance as yf
 import numpy as np
 import pandas as pd
-import yfinance as yf
-from statsmodels.tsa.ar_model import AutoReg
-import streamlit as st
-import warnings
+import matplotlib.pyplot as plt
+from scipy.stats import norm
 
-warnings.filterwarnings("ignore")
+st.set_page_config(layout="wide")
+st.title("📊 Dashboard Emocional de Ativos")
 
-# ============================================
-# CONFIGURAÇÕES
-# ============================================
+# =========================
+# INPUTS
+# =========================
 
-TICKERS = ["PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA"]
-HORIZON = 21
-SIMS = 4000
-TP = 0.10
-SL = -0.05
+tickers_input = st.text_input("Ativos (separados por vírgula)", "")
+period = st.selectbox("Período", ["1y","2y","5y"])
+tp_percent = st.number_input("Take Profit (%)", value=5.0)/100
+sl_percent = st.number_input("Stop Loss (%)", value=5.0)/100
+forecast_days = st.number_input("Período Projeção (dias)", value=30)
+corr_limit = 0.7
 
-MAX_PORTFOLIO_EXPOSURE = 0.60
-MIN_VOLUME = 5_000_000
+if tickers_input:
 
-# ============================================
-# FUNÇÕES
-# ============================================
+    tickers = [t.strip().upper() for t in tickers_input.split(",")]
+    returns_dict = {}
+    results = []
 
-def get_data(ticker):
-    try:
-        data = yf.download(ticker, period="2y", interval="1d", progress=False)
+    for ticker in tickers:
+
+        data = yf.download(ticker, period=period)
         if data.empty:
-            return None
-        return data
-    except:
-        return None
-
-
-def estimate_params(data):
-
-    returns = np.log(data["Close"] / data["Close"].shift(1)).dropna()
-
-    if len(returns) < 50:
-        return None, None, None
-
-    try:
-        model = AutoReg(returns, lags=1).fit()
-        mu_raw = float(model.params.iloc[0])
-    except:
-        mu_raw = float(returns.mean())
-
-    mu = float(np.clip(0.6 * mu_raw, -0.02, 0.02))
-    sigma = float(returns.std())
-
-    return mu, sigma, returns.astype(float)
-
-
-def simulate_paths(mu, sigma):
-
-    mu = float(mu)
-    sigma = float(sigma)
-
-    dt = 1
-
-    z = np.random.standard_t(df=5, size=(SIMS, HORIZON))
-    z = z / np.sqrt(5/(5-2))
-
-    drift = mu * dt
-    diffusion = sigma * np.sqrt(dt) * z
-
-    paths = np.cumsum(drift + diffusion, axis=1)
-
-    return paths
-
-
-def prob_tp_sl(paths, tp, sl):
-
-    tp_hits = np.any(paths >= tp, axis=1)
-    p_tp = float(np.mean(tp_hits))
-
-    p_tp *= 0.90  # haircut estrutural
-    p_sl = 1 - p_tp
-
-    return p_tp, p_sl
-
-
-def kelly_fraction(tp, sl, p):
-    b = tp / abs(sl)
-    q = 1 - p
-    k = (b*p - q)/b
-    return max(float(k), 0.0)
-
-
-# ============================================
-# EXECUÇÃO
-# ============================================
-
-results = []
-returns_dict = {}
-
-for ticker in TICKERS:
-
-    data = get_data(ticker)
-    if data is None:
-        continue
-
-    # Filtro de volume
-    try:
-        vol = data["Volume"].rolling(20).mean().iloc[-1]
-        if pd.notna(vol) and float(vol) < MIN_VOLUME:
             continue
-    except:
-        pass
 
-    mu, sigma, returns = estimate_params(data)
-    if mu is None:
-        continue
+        prices = data['Close']
+        log_returns = np.log(prices/prices.shift(1)).dropna()
+        returns_dict[ticker] = log_returns
 
-    paths = simulate_paths(mu, sigma)
-    p_tp, p_sl = prob_tp_sl(paths, TP, SL)
+        mu = log_returns.mean()*252
+        sigma = log_returns.std()*np.sqrt(252)
 
-    EV = p_tp*TP - p_sl*abs(SL)
+        S0 = prices.iloc[-1]
+        T = forecast_days/252
 
-    var = p_tp*(TP**2) + p_sl*(SL**2) - EV**2
-    std_strategy = float(np.sqrt(abs(var)))
+        expected_price = S0*np.exp(mu*T)
 
-    if std_strategy == 0:
-        continue
+        tp_price = S0*(1+tp_percent)
+        sl_price = S0*(1-sl_percent)
 
-    score = float(EV / std_strategy)
-    kelly = 0.5 * kelly_fraction(TP, SL, p_tp)
+        d_tp = (np.log(tp_price/S0)-(mu-0.5*sigma**2)*T)/(sigma*np.sqrt(T))
+        prob_tp = 1-norm.cdf(d_tp)
 
-    results.append({
-        "Ticker": ticker,
-        "EV": float(EV),
-        "Score": score,
-        "Kelly": float(kelly)
-    })
+        d_sl = (np.log(sl_price/S0)-(mu-0.5*sigma**2)*T)/(sigma*np.sqrt(T))
+        prob_sl = norm.cdf(d_sl)
 
-    # GUARDA APENAS SERIES VÁLIDA
-    if isinstance(returns, pd.Series):
-        returns_dict[ticker] = returns.copy()
+        emotional_index = (expected_price/S0-1)*prob_tp - sigma*prob_sl
 
-
-# ============================================
-# VALIDAÇÃO
-# ============================================
-
-if len(results) == 0:
-    st.error("Nenhum ativo passou nos filtros.")
-    st.stop()
-
-df = pd.DataFrame(results)
-
-if "Score" not in df.columns:
-    st.error("Erro interno: coluna Score ausente.")
-    st.stop()
-
-df = df.sort_values("Score", ascending=False)
-
-
-# ============================================
-# CORRELAÇÃO VIA DRAWDOWN (BLINDADA)
-# ============================================
-
-valid_returns = {
-    k: v for k, v in returns_dict.items()
-    if isinstance(v, pd.Series) and len(v) > 50
-}
-
-if len(valid_returns) >= 2:
-
-    returns_df = pd.concat(valid_returns, axis=1)
-
-    # Remove NaN alinhando datas
-    returns_df = returns_df.dropna()
-
-    if returns_df.shape[1] >= 2:
-
-        dd = returns_df.cumsum() - returns_df.cumsum().cummax()
-        corr_matrix = dd.corr()
-
-        adjusted_rows = []
-
-        for _, row in df.iterrows():
-
-            ticker = row["Ticker"]
-
-            if ticker not in corr_matrix.columns:
-                continue
-
-            avg_corr = corr_matrix[ticker].drop(ticker).mean()
-            corr_penalty = float(1 - avg_corr)
-
-            adj_score = float(row["Score"] * corr_penalty)
-            adj_kelly = float(row["Kelly"] * corr_penalty)
-
-            adjusted_rows.append({
-                "Ticker": ticker,
-                "AdjScore": adj_score,
-                "Kelly": adj_kelly
-            })
-
-        if len(adjusted_rows) > 0:
-            final_df = pd.DataFrame(adjusted_rows)
-            final_df = final_df.sort_values("AdjScore", ascending=False)
+        if emotional_index > 0.05:
+            emotion = "🟢 Otimista"
+        elif emotional_index < -0.05:
+            emotion = "🔴 Estressado"
         else:
-            final_df = df.copy()
-            final_df["AdjScore"] = final_df["Score"]
+            emotion = "🟡 Neutro"
 
-    else:
-        final_df = df.copy()
-        final_df["AdjScore"] = final_df["Score"]
+        # =====================
+        # BACKTEST
+        # =====================
 
-else:
-    final_df = df.copy()
-    final_df["AdjScore"] = final_df["Score"]
+        wins = 0
+        losses = 0
+        for i in range(len(prices)-forecast_days):
+            entry = prices.iloc[i]
+            future = prices.iloc[i:i+forecast_days]
 
+            if (future >= entry*(1+tp_percent)).any():
+                wins += 1
+            elif (future <= entry*(1-sl_percent)).any():
+                losses += 1
 
-# ============================================
-# NORMALIZAÇÃO
-# ============================================
+        total = wins + losses
+        winrate = wins/total if total>0 else 0
+        payoff = (tp_percent*winrate - sl_percent*(1-winrate))
 
-kelly_sum = float(final_df["Kelly"].sum())
+        # =====================
+        # OUTPUT
+        # =====================
 
-if kelly_sum > 0 and kelly_sum > MAX_PORTFOLIO_EXPOSURE:
-    scale = MAX_PORTFOLIO_EXPOSURE / kelly_sum
-    final_df["Kelly"] = final_df["Kelly"] * scale
+        st.subheader(f"{ticker} - {emotion}")
+        st.write(f"Winrate Backtest: {winrate:.2%}")
+        st.write(f"Expectativa Matemática: {payoff:.4f}")
+        st.write(f"Prob TP: {prob_tp:.2%} | Prob SL: {prob_sl:.2%}")
 
-final_df["Weight_%"] = final_df["Kelly"] * 100
+        results.append({
+            "Ticker":ticker,
+            "Score": emotional_index,
+            "Retorno": expected_price/S0-1,
+            "ProbTP": prob_tp
+        })
 
+    # =====================
+    # OTIMIZAÇÃO COM CORRELAÇÃO
+    # =====================
 
-# ============================================
-# OUTPUT
-# ============================================
+    if len(results)>10:
 
-st.subheader("Carteira Agressiva Controlada")
-st.dataframe(final_df)
+        st.header("Simulação Carteira Otimizada")
+
+        df_ret = pd.DataFrame(returns_dict)
+        corr_matrix = df_ret.corr()
+
+        df_scores = pd.DataFrame(results).sort_values("Score",ascending=False)
+
+        selected = []
+        for ticker in df_scores["Ticker"]:
+            if not selected:
+                selected.append(ticker)
+            else:
+                if all(abs(corr_matrix[ticker][s]) < corr_limit for s in selected):
+                    selected.append(ticker)
+            if len(selected)==5:
+                break
+
+        st.write("Ativos Selecionados (baixa correlação + alto score):")
+        st.write(selected)
