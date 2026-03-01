@@ -46,21 +46,26 @@ def calculate_gbm_metrics(prices, forecast_days):
     }
 
 
-def optimize_tp_sl(S0, mu, sigma):
-    tp_range = np.linspace(0.01, 0.30, 30)
-    sl_range = np.linspace(0.01, 0.30, 30)
+def optimize_tp_sl(S0, mu, sigma, forecast_days):
+
+    if sigma <= 0:
+        return None, None, None
+
+    sigma_period = sigma * np.sqrt(forecast_days / 252)
+    max_move = min(0.25, 2 * sigma_period)  # trava máxima em 25%
+
+    tp_range = np.linspace(0.01, max_move, 25)
+    sl_range = np.linspace(0.01, max_move, 25)
 
     best_ev = -np.inf
     best_tp = None
     best_sl = None
 
-    if sigma <= 0:
-        return None, None, None
-
     alpha = (2 * mu) / (sigma**2)
 
     for tp in tp_range:
         for sl in sl_range:
+
             tp_price = S0 * (1 + tp)
             sl_price = S0 * (1 - sl)
 
@@ -122,6 +127,7 @@ corr_limit = 0.7
 # =========================
 
 if tickers_input:
+    
 
     tickers = [t.strip().upper() for t in tickers_input.split(",")]
     returns_dict = {}
@@ -147,7 +153,7 @@ if tickers_input:
         mu = metrics["mu"]
         sigma = metrics["sigma"]
 
-        best_tp, best_sl, best_ev = optimize_tp_sl(S0, mu, sigma)
+        best_tp, best_sl, best_ev = optimize_tp_sl(S0, mu, sigma, forecast_days)
 
         tp_price = S0 * (1 + tp_percent)
         sl_price = S0 * (1 - sl_percent)
