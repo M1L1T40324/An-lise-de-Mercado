@@ -68,16 +68,16 @@ if tickers_input:
             )
             except:
                 prob_tp_before_sl = 0.5
-            prob_sl_before_tp = 1 - prob_tp_before_sl
-            ev_trade = tp_percent*prob_tp_before_sl - sl_percent*prob_sl_before_tp
+        prob_sl_before_tp = 1 - prob_tp_before_sl
+        ev_trade = tp_percent*prob_tp_before_sl - sl_percent*prob_sl_before_tp
             
-            z_95 = 1.96
-            lower_price = S0*np.exp((mu-0.5*sigma**2)*T - z_95*sigma*np.sqrt(T))
-            upper_price = S0*np.exp((mu-0.5*sigma**2)*T + z_95*sigma*np.sqrt(T))
+        z_95 = 1.96
+        lower_price = S0*np.exp((mu-0.5*sigma**2)*T - z_95*sigma*np.sqrt(T))
+        upper_price = S0*np.exp((mu-0.5*sigma**2)*T + z_95*sigma*np.sqrt(T))
         
-            risk_5_losses = (prob_sl_before_tp)**5
+        risk_5_losses = (prob_sl_before_tp)**5
         
-            emotional_index = float((expected_price/S0-1)*prob_tp - sigma*prob_sl)
+        emotional_index = float((expected_price/S0-1)*prob_tp - sigma*prob_sl)
 
         if emotional_index > 0.05:
             emotion = "🟢 Otimista"
