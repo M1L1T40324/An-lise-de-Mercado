@@ -2,8 +2,5 @@ streamlit
 yfinance
 numpy
 pandas
+matplotlib
 scipy
-statsmodels
-scikit-learn
-xgboost
-
