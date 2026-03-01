@@ -71,8 +71,8 @@ if tickers_input:
                         best_ev = ev
                         best_tp = tp
                         best_sl = sl
-                        except:
-                            continue
+                except:
+                    continue
         if sigma == 0:
             continue
             
