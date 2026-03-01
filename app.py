@@ -105,11 +105,10 @@ if tickers_input:
         st.write("Intervalo de Confiança 95%:")
         st.write(f"{lower_price:.2f} — {upper_price:.2f}")
         st.write(f"Risco de 5 perdas consecutivas: {risk_5_losses:.4%}")
-        
-        st.subheader(f"{ticker} - {emotion}")
+      
         st.write(f"Winrate Backtest: {winrate:.2%}")
         st.write(f"Expectativa Matemática: {payoff:.4f}")
-        st.write(f"Prob TP: {prob_tp:.2%} | Prob SL: {prob_sl:.2%}")
+        
 
         results.append({
             "Ticker":ticker,
