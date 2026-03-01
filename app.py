@@ -31,7 +31,12 @@ if tickers_input:
         if data.empty:
             continue
 
-        prices = data['Close']
+        if isinstance(data['Close'], pd.DataFrame):
+            prices = data['Close'].iloc[:, 0]
+        else:
+            prices = data['Close']
+        prices = prices.dropna().astype(float)
+        
         log_returns = np.log(prices/prices.shift(1)).dropna()
         returns_dict[ticker] = log_returns
 
