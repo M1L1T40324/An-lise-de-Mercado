@@ -112,9 +112,7 @@ if tickers_input:
 
         results.append({
             "Ticker":ticker,
-            "Score": emotional_index,
             "Retorno": expected_price/S0-1,
-            "ProbTP": prob_tp
         })
 
     # =====================
