@@ -77,7 +77,6 @@ if tickers_input:
         
         risk_5_losses = (prob_sl_before_tp)**5
         
-        emotional_index = float((expected_price/S0-1)*prob_tp - sigma*prob_sl)
 
         if emotional_index > 0.05:
             emotion = "🟢 Otimista"
@@ -105,10 +104,22 @@ if tickers_input:
         winrate = wins/total if total>0 else 0
         payoff = (tp_percent*winrate - sl_percent*(1-winrate))
 
-        # =====================
-        # OUTPUT
-        # =====================
+         =====================
 
+        st.subheader(f"{ticker}")
+        st.write(f"Preço Atual: {S0:.2f}")
+        st.write(f"Retorno Esperado ({forecast_days} dias): {expected_return:.2%}")
+        st.write(f"Preço Esperado: {expected_price:.2f}")
+        
+        st.write(f"Probabilidade retorno positivo: {prob_positive:.2%}")
+        st.write("Probabilidades Condicionais:")
+        st.write(f"TP antes do SL: {prob_tp_before_sl:.2%}")
+        st.write(f"SL antes do TP: {prob_sl_before_tp:.2%}")
+        st.write(f"Valor Esperado do Trade: {ev_trade:.4f}")
+        st.write("Intervalo de Confiança 95%:")
+        st.write(f"{lower_price:.2f} — {upper_price:.2f}")
+        st.write(f"Risco de 5 perdas consecutivas: {risk_5_losses:.4%}")
+        
         st.subheader(f"{ticker} - {emotion}")
         st.write(f"Winrate Backtest: {winrate:.2%}")
         st.write(f"Expectativa Matemática: {payoff:.4f}")
