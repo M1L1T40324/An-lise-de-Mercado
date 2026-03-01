@@ -1,238 +1,220 @@
+# ============================
+# IMPORTS
+# ============================
+
 import streamlit as st
-import yfinance as yf
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+import yfinance as yf
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize_scalar
 
-st.set_page_config(layout="wide")
-st.title("📊 Dashboard Emocional de Ativos")
+np.random.seed(42)
 
+# ============================
+# DATA LAYER
+# ============================
 
-# =========================
-# FUNÇÕES AUXILIARES
-# =========================
+def load_data(ticker, period="5y"):
+    data = yf.download(ticker, period=period, auto_adjust=True)
+    return data["Close"]
 
-def calculate_gbm_metrics(prices, forecast_days):
-    log_returns = np.log(prices / prices.shift(1)).dropna()
+def estimate_params(close, window=252):
+    log_ret = np.log(close / close.shift(1)).dropna()
+    mu = log_ret.rolling(window).mean().dropna()
+    sigma = log_ret.rolling(window).std().dropna()
+    return mu.iloc[-1], sigma.iloc[-1]
 
-    mu = float(log_returns.mean() * 252)
-    sigma = float(log_returns.std() * np.sqrt(252))
+# ============================
+# PROBABILIDADE ANALÍTICA
+# ============================
 
-    if sigma <= 0 or np.isnan(sigma):
-        return None
+def hitting_probability(mu, sigma, tp, sl):
+    if sigma <= 0:
+        return 0.0, 0.0
 
-    S0 = float(prices.iloc[-1])
-    T = forecast_days / 252
+    if abs(mu) < 1e-8:
+        p_tp = sl / (tp + sl)
+        return p_tp, 1 - p_tp
 
-    expected_price = float(S0 * np.exp(mu * T))
-    expected_return = expected_price / S0 - 1
+    a = 2 * mu / (sigma**2)
 
-    z_pos = (-(mu - 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-    prob_positive = 1 - norm.cdf(z_pos)
+    numerator = 1 - np.exp(-a * sl)
+    denominator = np.exp(a * tp) - np.exp(-a * sl)
 
-    z_95 = 1.96
-    lower_price = S0 * np.exp((mu - 0.5 * sigma**2) * T - z_95 * sigma * np.sqrt(T))
-    upper_price = S0 * np.exp((mu - 0.5 * sigma**2) * T + z_95 * sigma * np.sqrt(T))
+    if denominator == 0:
+        return 0.0, 0.0
+
+    p_tp = numerator / denominator
+    p_tp = np.clip(p_tp, 0, 1)
+
+    return p_tp, 1 - p_tp
+
+# ============================
+# SIMULAÇÃO MONTE CARLO
+# ============================
+
+def simulate_paths(mu, sigma, horizon, n_sim=5000):
+    eps = np.random.randn(n_sim, horizon)
+    returns = mu + sigma * eps
+    paths = returns.cumsum(axis=1)
+    return paths
+
+def simulate_trade_distribution(mu, sigma, tp, sl, horizon, n_sim=5000):
+
+    paths = simulate_paths(mu, sigma, horizon, n_sim)
+    pnl = []
+
+    for path in paths:
+        hit_tp = np.where(path >= tp)[0]
+        hit_sl = np.where(path <= -sl)[0]
+
+        tp_time = hit_tp[0] if len(hit_tp) else np.inf
+        sl_time = hit_sl[0] if len(hit_sl) else np.inf
+
+        if tp_time < sl_time:
+            pnl.append(tp)
+        elif sl_time < tp_time:
+            pnl.append(-sl)
+        else:
+            pnl.append(path[-1])
+
+    return np.array(pnl)
+
+# ============================
+# MÉTRICAS DE RISCO
+# ============================
+
+def risk_metrics(pnl):
+
+    EV = pnl.mean()
+    std = pnl.std()
+    sharpe = EV / std if std > 0 else 0
+
+    cum = np.cumsum(pnl)
+    drawdown = cum - np.maximum.accumulate(cum)
+    max_dd = drawdown.min()
+
+    cvar = pnl[pnl <= np.quantile(pnl, 0.05)].mean()
 
     return {
-        "S0": S0,
-        "mu": mu,
-        "sigma": sigma,
-        "expected_price": expected_price,
-        "expected_return": expected_return,
-        "prob_positive": prob_positive,
-        "lower_price": lower_price,
-        "upper_price": upper_price
+        "EV": EV,
+        "Sharpe": sharpe,
+        "MaxDD": max_dd,
+        "CVaR_5%": cvar
     }
 
+# ============================
+# KELLY CONTÍNUO REAL
+# ============================
 
-def optimize_tp_sl(S0, mu, sigma, forecast_days):
+def kelly_continuous(pnl):
 
-    if sigma <= 0:
-        return None, None, None
+    def objective(f):
+        if f <= 0:
+            return -np.inf
+        return np.mean(np.log(1 + f * pnl))
 
-    sigma_period = sigma * np.sqrt(forecast_days / 252)
-    max_move = min(0.25, 2 * sigma_period)  # trava máxima em 25%
+    f_grid = np.linspace(0.0, 0.5, 200)
+    values = [objective(f) for f in f_grid]
 
-    tp_range = np.linspace(0.01, max_move, 25)
-    sl_range = np.linspace(0.01, max_move, 25)
+    idx = np.argmax(values)
+    return f_grid[idx]
 
-    best_ev = -np.inf
-    best_tp = None
-    best_sl = None
+# ============================
+# OTIMIZAÇÃO TP/SL
+# ============================
 
-    alpha = (2 * mu) / (sigma**2)
+def optimize_tp_sl(mu, sigma, horizon):
+
+    tp_range = np.linspace(0.01, 0.30, 15)
+    sl_range = np.linspace(0.01, 0.30, 15)
+
+    results = []
 
     for tp in tp_range:
         for sl in sl_range:
 
-            tp_price = S0 * (1 + tp)
-            sl_price = S0 * (1 - sl)
+            pnl = simulate_trade_distribution(mu, sigma, tp, sl, horizon)
 
-            try:
-                prob_tp = (
-                    1 - (sl_price / S0) ** alpha
-                ) / (
-                    (tp_price / S0) ** alpha - (sl_price / S0) ** alpha
-                )
+            metrics = risk_metrics(pnl)
+            kelly = kelly_continuous(pnl)
 
-                prob_sl = 1 - prob_tp
-                ev = tp * prob_tp - sl * prob_sl
+            results.append({
+                "TP": tp,
+                "SL": sl,
+                "EV": metrics["EV"],
+                "Sharpe": metrics["Sharpe"],
+                "MaxDD": metrics["MaxDD"],
+                "CVaR": metrics["CVaR_5%"],
+                "Kelly": min(kelly, 0.25)
+            })
 
-                if ev > best_ev:
-                    best_ev = ev
-                    best_tp = tp
-                    best_sl = sl
+    df = pd.DataFrame(results)
+    best = df.loc[df["EV"].idxmax()]
 
-            except:
-                continue
+    return best, df
 
-    return best_tp, best_sl, best_ev
+# ============================
+# STREAMLIT UI
+# ============================
 
+st.title("⚔️ Motor Quantitativo de Swing Trade")
 
-def backtest_tp_sl(prices, forecast_days, tp_percent, sl_percent):
-    wins = 0
-    losses = 0
+ticker = st.text_input("Ticker", "PETR4.SA")
+horizon = st.slider("Horizonte (dias)", 5, 60, 15)
 
-    for i in range(len(prices) - forecast_days):
-        entry = prices.iloc[i]
-        future = prices.iloc[i:i + forecast_days]
+if st.button("Analisar"):
 
-        if (future >= entry * (1 + tp_percent)).any():
-            wins += 1
-        elif (future <= entry * (1 - sl_percent)).any():
-            losses += 1
+    close = load_data(ticker)
+    S0 = close.iloc[-1]
 
-    total = wins + losses
-    winrate = wins / total if total > 0 else 0
-    payoff = tp_percent * winrate - sl_percent * (1 - winrate)
+    mu, sigma = estimate_params(close)
 
-    return winrate, payoff
+    retorno_esperado = mu * horizon
+    preco_esperado = S0 * np.exp(retorno_esperado)
 
+    prob_pos = 1 - (np.exp(-2 * mu * retorno_esperado / (sigma**2)) 
+                    if sigma > 0 else 0)
 
-# =========================
-# INPUTS
-# =========================
+    best, df_all = optimize_tp_sl(mu, sigma, horizon)
 
-tickers_input = st.text_input("Ativos (separados por vírgula)", "")
-period = st.selectbox("Período", ["1y", "2y", "5y"])
-tp_percent = st.number_input("Take Profit (%)", value=5.0) / 100
-sl_percent = st.number_input("Stop Loss (%)", value=5.0) / 100
-forecast_days = st.number_input("Período Projeção (dias)", value=30)
-corr_limit = 0.7
+    tp = best["TP"]
+    sl = best["SL"]
 
+    p_tp, p_sl = hitting_probability(mu, sigma, tp, sl)
 
-# =========================
-# PROCESSAMENTO
-# =========================
+    pnl = simulate_trade_distribution(mu, sigma, tp, sl, horizon)
 
-if tickers_input:
-    
+    metrics = risk_metrics(pnl)
+    kelly = kelly_continuous(pnl)
 
-    tickers = [t.strip().upper() for t in tickers_input.split(",")]
-    returns_dict = {}
-    results = []
+    st.subheader(f"{ticker}")
+    st.write(f"Preço Atual: {S0:.2f}")
 
-    for ticker in tickers:
+    st.write(f"Retorno Esperado ({horizon} dias): {retorno_esperado*100:.2f}%")
+    st.write(f"Preço Esperado: {preco_esperado:.2f}")
 
-        data = yf.download(ticker, period=period)
-        if data.empty:
-            continue
+    st.write(f"Probabilidade retorno positivo: {(pnl > 0).mean()*100:.2f}%")
 
-        prices = data['Close']
-        if isinstance(prices, pd.DataFrame):
-            prices = prices.iloc[:, 0]
+    st.subheader("Probabilidades Condicionais")
+    st.write(f"TP antes do SL: {p_tp*100:.2f}%")
+    st.write(f"SL antes do TP: {p_sl*100:.2f}%")
 
-        prices = prices.dropna().astype(float)
+    st.subheader("TP/SL Ideais (Max EV)")
+    st.write(f"TP Ideal: {tp*100:.2f}%")
+    st.write(f"SL Ideal: {sl*100:.2f}%")
+    st.write(f"Valor Esperado Máximo: {best['EV']:.4f}")
 
-        metrics = calculate_gbm_metrics(prices, forecast_days)
-        if metrics is None:
-            continue
+    st.subheader("Métricas de Risco")
+    st.write(f"Sharpe: {metrics['Sharpe']:.4f}")
+    st.write(f"Max Drawdown: {metrics['MaxDD']:.4f}")
+    st.write(f"CVaR 5%: {metrics['CVaR_5%']:.4f}")
 
-        S0 = metrics["S0"]
-        mu = metrics["mu"]
-        sigma = metrics["sigma"]
+    st.subheader("Alocação Ótima (Kelly)")
+    st.write(f"Fração Ótima: {kelly:.2f}")
 
-        best_tp, best_sl, best_ev = optimize_tp_sl(S0, mu, sigma, forecast_days)
-
-        tp_price = S0 * (1 + tp_percent)
-        sl_price = S0 * (1 - sl_percent)
-
-        alpha = (2 * mu) / (sigma**2)
-        try:
-            prob_tp = (
-                1 - (sl_price / S0) ** alpha
-            ) / (
-                (tp_price / S0) ** alpha - (sl_price / S0) ** alpha
-            )
-        except:
-            prob_tp = 0.5
-
-        prob_sl = 1 - prob_tp
-        ev_trade = tp_percent * prob_tp - sl_percent * prob_sl
-        risk_5_losses = (prob_sl) ** 5
-
-        winrate, payoff = backtest_tp_sl(
-            prices, forecast_days, tp_percent, sl_percent
-        )
-
-        log_returns = np.log(prices / prices.shift(1)).dropna()
-        returns_dict[ticker] = log_returns
-
-        # =====================
-        # OUTPUT
-        # =====================
-
-        st.subheader(ticker)
-        st.write(f"Preço Atual: {S0:.2f}")
-        st.write(f"Retorno Esperado ({forecast_days} dias): {metrics['expected_return']:.2%}")
-        st.write(f"Preço Esperado: {metrics['expected_price']:.2f}")
-        st.write(f"Probabilidade retorno positivo: {metrics['prob_positive']:.2%}")
-        st.write("Probabilidades Condicionais:")
-        st.write(f"TP antes do SL: {prob_tp:.2%}")
-        st.write(f"SL antes do TP: {prob_sl:.2%}")
-        st.write(f"Valor Esperado do Trade: {ev_trade:.4f}")
-        st.write("Intervalo de Confiança 95%:")
-        st.write(f"{metrics['lower_price']:.2f} — {metrics['upper_price']:.2f}")
-        st.write(f"Risco de 5 perdas consecutivas: {risk_5_losses:.4%}")
-
-        st.subheader("TP/SL Ideais (Max EV)")
-        st.write(f"TP Ideal: {best_tp:.2%}" if best_tp else "TP Ideal: N/A")
-        st.write(f"SL Ideal: {best_sl:.2%}" if best_sl else "SL Ideal: N/A")
-        st.write(f"Valor Esperado Máximo: {best_ev:.4f}" if best_ev else "EV Máximo: N/A")
-
-        st.write(f"Winrate Backtest: {winrate:.2%}")
-        st.write(f"Expectativa Matemática: {payoff:.4f}")
-
-        results.append({
-            "Ticker": ticker,
-            "Score": payoff
-        })
-
-
-    # =====================
-    # OTIMIZAÇÃO COM CORRELAÇÃO
-    # =====================
-
-    if len(results) > 3:
-
-        st.header("Simulação Carteira Otimizada")
-
-        df_ret = pd.DataFrame(returns_dict)
-        corr_matrix = df_ret.corr()
-
-        df_scores = pd.DataFrame(results).sort_values("Score", ascending=False)
-
-        selected = []
-
-        for ticker in df_scores["Ticker"]:
-            if not selected:
-                selected.append(ticker)
-            else:
-                if all(abs(corr_matrix[ticker][s]) < corr_limit for s in selected):
-                    selected.append(ticker)
-            if len(selected) == 5:
-                break
-
-        st.write("Ativos Selecionados (baixa correlação + alta expectativa):")
-        st.write(selected)
+    st.subheader("Distribuição Simulada")
+    fig, ax = plt.subplots()
+    ax.hist(pnl, bins=50)
+    st.pyplot(fig)
