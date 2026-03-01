@@ -43,6 +43,36 @@ if tickers_input:
         mu = float(log_returns.mean()*252)
         sigma = float(log_returns.std()*np.sqrt(252))
         
+        tp_range = np.linspace(0.01, 0.30, 30)  
+        sl_range = np.linspace(0.01, 0.30, 30)
+        
+        best_ev = -np.inf
+        best_tp = None
+        best_sl = None
+        
+        alpha = (2*mu)/(sigma**2)
+        
+        for tp in tp_range:
+            for sl in sl_range:
+                tp_price = S0*(1+tp)
+                sl_price = S0*(1-sl)
+                
+                try:
+                    prob_tp_before_sl = (
+                        1 - (sl_price/S0)**alpha
+                    ) / (
+                        (tp_price/S0)**alpha - (sl_price/S0)**alpha
+                    )
+                    
+                    prob_sl_before_tp = 1 - prob_tp_before_sl
+                    ev = tp*prob_tp_before_sl - sl*prob_sl_before_tp
+                    
+                    if ev > best_ev:
+                        best_ev = ev
+                        best_tp = tp
+                        best_sl = sl
+                        except:
+                            continue
         if sigma == 0:
             continue
             
@@ -105,7 +135,10 @@ if tickers_input:
         st.write("Intervalo de Confiança 95%:")
         st.write(f"{lower_price:.2f} — {upper_price:.2f}")
         st.write(f"Risco de 5 perdas consecutivas: {risk_5_losses:.4%}")
-      
+        st.subheader("TP/SL Ideais (Max EV)")
+        st.write(f"TP Ideal: {best_tp:.2%}")
+        st.write(f"SL Ideal: {best_sl:.2%}")
+        st.write(f"Valor Esperado Máximo: {best_ev:.4f}")
         st.write(f"Winrate Backtest: {winrate:.2%}")
         st.write(f"Expectativa Matemática: {payoff:.4f}")
         
