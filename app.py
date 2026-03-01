@@ -104,8 +104,6 @@ if tickers_input:
         winrate = wins/total if total>0 else 0
         payoff = (tp_percent*winrate - sl_percent*(1-winrate))
 
-         =====================
-
         st.subheader(f"{ticker}")
         st.write(f"Preço Atual: {S0:.2f}")
         st.write(f"Retorno Esperado ({forecast_days} dias): {expected_return:.2%}")
