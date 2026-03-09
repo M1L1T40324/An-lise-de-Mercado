@@ -301,24 +301,24 @@ def plot_regression(close):
 
     return fig
 
+def read_tickers(file):
 
-# ============================
-# STREAMLIT UI
-# ============================
+    content = file.read().decode("utf-8")
 
-st.title("Motor Quantitativo de Swing Trade")
+    tickers = [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip()
+    ]
 
-ticker = st.text_input("Ticker","PETR4.SA")
+    return tickers
 
-horizon = st.slider("Horizonte (dias)",5,60,15)
-
-if st.button("Analisar"):
+def analyze_ticker(ticker, horizon):
 
     close = load_data(ticker)
 
     if close is None:
-        st.error("Erro ao carregar dados.")
-        st.stop()
+        return None
 
     log_ret = compute_log_returns(close)
 
@@ -326,61 +326,72 @@ if st.button("Analisar"):
 
     sigma = estimate_volatility_ewma(log_ret)
 
-    S0 = float(close.iloc[-1])
-
-    retorno_esperado = mu*horizon
-
-    preco_esperado = S0*np.exp(retorno_esperado)
-
-    best, df_all = optimize_tp_sl(mu,sigma,horizon)
+    best, df_all = optimize_tp_sl(mu, sigma, horizon)
 
     tp = best["TP"]
     sl = best["SL"]
 
     pnl = simulate_trade_distribution(
-        mu,sigma,tp,sl,horizon
+        mu, sigma, tp, sl, horizon
     )
 
     EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
 
-    kelly = kelly_continuous(pnl)
+    prob_pos = (pnl > 0).mean()
 
-    prob_pos = (pnl>0).mean()
+    score = best["Score"]
 
-    st.subheader(ticker)
+    return {
+        "Ticker": ticker,
+        "Score": score,
+        "EV": EV,
+        "Sharpe": sharpe,
+        "ProbWin": prob_pos,
+        "TP": tp,
+        "SL": sl,
+        "Kelly": best["Kelly"]
+    }
 
-    st.write(f"Preço Atual: {S0:.2f}")
-    st.write(f"Retorno Esperado ({horizon} dias): {retorno_esperado*100:.2f}%")
-    st.write(f"Preço Esperado: {preco_esperado:.2f}")
 
-    st.write(f"Probabilidade retorno positivo: {prob_pos*100:.2f}%")
+# ============================
+# STREAMLIT UI
+# ============================
 
-    st.subheader("TP / SL Ideais")
+st.title("Motor Quantitativo de Swing Trade")
 
-    st.write(f"TP: {tp*100:.2f}%")
-    st.write(f"SL: {sl*100:.2f}%")
+uploaded_file = st.file_uploader(
+    "Upload arquivo .txt com tickers",
+    type=["txt"]
+)
 
-    st.subheader("Métricas")
+horizon = st.slider("Horizonte (dias)",5,60,15)
 
-    st.write(f"Sharpe: {sharpe:.3f}")
-    st.write(f"Max Drawdown: {max_dd:.3f}")
-    st.write(f"CVaR 5%: {cvar:.3f}")
-    st.write(f"Skewness: {skew:.3f}")
+if uploaded_file and st.button("Analisar Ativos"):
 
-    st.subheader("Kelly")
+    tickers = read_tickers(uploaded_file)
 
-    st.write(f"Fração ótima: {kelly:.2f}")
+    results = []
 
-    st.subheader("Distribuição de PnL")
+    progress = st.progress(0)
 
-    fig, ax = plt.subplots()
+    for i, ticker in enumerate(tickers):
 
-    ax.hist(pnl,bins=40)
+        res = analyze_ticker(ticker, horizon)
 
-    st.pyplot(fig)
+        if res:
+            results.append(res)
 
-    st.subheader("Cotação + Tendência")
+        progress.progress((i+1)/len(tickers))
 
-    fig2 = plot_regression(close)
+    df = pd.DataFrame(results)
 
-    st.plotly_chart(fig2,use_container_width=True)
+    if df.empty:
+        st.error("Nenhum ativo válido.")
+        st.stop()
+
+    top5 = df.sort_values("Score", ascending=False).head(5)
+
+    st.subheader("Top 5 Ativos para Swing")
+    st.dataframe(top5)
+
+    
