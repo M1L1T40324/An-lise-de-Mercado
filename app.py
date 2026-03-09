@@ -10,6 +10,7 @@ from scipy.stats import t
 # DATA LAYER
 # ============================
 
+@st.cache_data
 def load_data(ticker, period="5y"):
 
     try:
@@ -31,7 +32,7 @@ def load_data(ticker, period="5y"):
         if len(close) < 300:
             return None
 
-        return close.astype(float)
+        return data
 
     except:
         return None
@@ -43,9 +44,7 @@ def load_data(ticker, period="5y"):
 
 def compute_log_returns(close):
 
-    log_ret = np.log(close / close.shift(1)).dropna()
-
-    return log_ret
+    return np.log(close / close.shift(1)).dropna()
 
 
 # ============================
@@ -58,9 +57,7 @@ def estimate_drift(log_ret):
 
     shrink = 0.25
 
-    mu = shrink * mu_hist
-
-    return float(mu)
+    return float(shrink * mu_hist)
 
 
 # ============================
@@ -78,10 +75,31 @@ def estimate_volatility_ewma(log_ret, lam=0.94):
 
 
 # ============================
+# ATR VOLATILITY
+# ============================
+
+def compute_atr(data, window=14):
+
+    high = data["High"]
+    low = data["Low"]
+    close = data["Close"]
+
+    tr1 = high - low
+    tr2 = abs(high - close.shift())
+    tr3 = abs(low - close.shift())
+
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    atr = tr.rolling(window).mean()
+
+    return float(atr.iloc[-1])
+
+
+# ============================
 # STUDENT T RETURNS
 # ============================
 
-def simulate_returns(mu, sigma, horizon, n_sim, df=5):
+def simulate_returns(mu, sigma, horizon, n_sim=4000, df=5):
 
     shocks = t.rvs(df, size=(n_sim, horizon))
 
@@ -93,25 +111,23 @@ def simulate_returns(mu, sigma, horizon, n_sim, df=5):
 
 
 # ============================
-# PRICE PATHS
+# PATHS
 # ============================
 
-def simulate_paths(mu, sigma, horizon, n_sim=5000):
+def simulate_paths(mu, sigma, horizon, n_sim=4000):
 
     returns = simulate_returns(mu, sigma, horizon, n_sim)
 
-    log_price = np.cumsum(returns, axis=1)
-
-    return log_price
+    return np.cumsum(returns, axis=1)
 
 
 # ============================
 # TRADE DISTRIBUTION
 # ============================
 
-def simulate_trade_distribution(mu, sigma, tp, sl, horizon, n_sim=5000):
+def simulate_trade_distribution(mu, sigma, tp, sl, horizon):
 
-    paths = simulate_paths(mu, sigma, horizon, n_sim)
+    paths = simulate_paths(mu, sigma, horizon)
 
     pnl = []
 
@@ -145,13 +161,13 @@ def risk_metrics(pnl):
 
     std = pnl.std()
 
-    sharpe = EV / std if std > 0 else 0
+    sharpe = EV/std if std > 0 else 0
 
     cum = np.cumsum(pnl)
 
-    drawdown = cum - np.maximum.accumulate(cum)
+    dd = cum - np.maximum.accumulate(cum)
 
-    max_dd = drawdown.min()
+    max_dd = dd.min()
 
     cvar = pnl[pnl <= np.quantile(pnl,0.05)].mean()
 
@@ -161,29 +177,43 @@ def risk_metrics(pnl):
 
 
 # ============================
-# GROWTH RATE
+# OBJECTIVE CONSERVATIVE
 # ============================
 
-def growth_rate(pnl):
-
-    pnl = np.clip(pnl, -0.99, None)
-
-    return np.mean(np.log(1+pnl))
-
-
-# ============================
-# OBJECTIVE FUNCTION
-# ============================
-
-def objective(pnl):
+def objective_conservative(pnl):
 
     EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
 
-    growth = growth_rate(pnl)
+    prob_win = (pnl > 0).mean()
 
-    score = growth - 0.5*abs(cvar) - 0.2*abs(max_dd)
+    score = (
+        2.0 * prob_win +
+        0.6 * sharpe +
+        0.5 * EV -
+        1.5 * abs(max_dd) -
+        1.5 * abs(cvar)
+    )
 
-    score += 0.3 * skew
+    return score
+
+
+# ============================
+# OBJECTIVE AGGRESSIVE
+# ============================
+
+def objective_aggressive(pnl):
+
+    EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
+
+    growth = np.mean(np.log(1 + np.clip(pnl,-0.99,None)))
+
+    score = (
+        1.4 * growth +
+        1.0 * EV +
+        0.4 * sharpe +
+        0.4 * skew -
+        0.8 * abs(max_dd)
+    )
 
     return score
 
@@ -194,18 +224,19 @@ def objective(pnl):
 
 def kelly_continuous(pnl):
 
-    f_grid = np.linspace(0,0.5,200)
+    pnl = np.clip(pnl,-0.99,None)
+
+    f_grid = np.linspace(0,0.5,150)
 
     best_f = 0
     best_val = -np.inf
-
-    pnl = np.clip(pnl,-0.99,None)
 
     for f in f_grid:
 
         val = np.mean(np.log(1+f*pnl))
 
         if val > best_val:
+
             best_val = val
             best_f = f
 
@@ -216,46 +247,57 @@ def kelly_continuous(pnl):
 # TP SL OPTIMIZATION
 # ============================
 
-def optimize_tp_sl(mu, sigma, horizon):
+def optimize_tp_sl(mu, sigma, horizon, strategy, atr_pct):
 
-    tp_range = np.linspace(0.01,0.25,15)
-    sl_range = np.linspace(0.01,0.25,15)
+    if strategy == "Conservadora":
 
-    rows = []
+        tp_range = np.linspace(0.01,0.02,8)
+        sl = atr_pct * 1.2
+
+        objective = objective_conservative
+
+    else:
+
+        tp_range = np.linspace(0.04,0.10,10)
+        sl = atr_pct * 2.0
+
+        objective = objective_aggressive
+
 
     best_score = -np.inf
     best_row = None
+    rows = []
 
     for tp in tp_range:
-        for sl in sl_range:
 
-            pnl = simulate_trade_distribution(
-                mu,sigma,tp,sl,horizon
-            )
+        pnl = simulate_trade_distribution(
+            mu,sigma,tp,sl,horizon
+        )
 
-            EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
+        EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
 
-            score = objective(pnl)
+        score = objective(pnl)
 
-            kelly = kelly_continuous(pnl)
+        kelly = kelly_continuous(pnl)
 
-            row = {
-                "TP":tp,
-                "SL":sl,
-                "EV":EV,
-                "Sharpe":sharpe,
-                "MaxDD":max_dd,
-                "CVaR":cvar,
-                "Skew":skew,
-                "Kelly":min(kelly,0.25),
-                "Score":score
-            }
+        row = {
+            "TP":tp,
+            "SL":sl,
+            "EV":EV,
+            "Sharpe":sharpe,
+            "MaxDD":max_dd,
+            "CVaR":cvar,
+            "Skew":skew,
+            "Kelly":min(kelly,0.25),
+            "Score":score
+        }
 
-            rows.append(row)
+        rows.append(row)
 
-            if score > best_score:
-                best_score = score
-                best_row = row
+        if score > best_score:
+
+            best_score = score
+            best_row = row
 
     df = pd.DataFrame(rows)
 
@@ -301,24 +343,38 @@ def plot_regression(close):
 
     return fig
 
+
+# ============================
+# TICKER LOADER
+# ============================
+
 def read_tickers(file):
 
     content = file.read().decode("utf-8")
 
+    content = content.replace("\n",",")
+
     tickers = [
-        line.strip()
-        for line in content.splitlines()
-        if line.strip()
+        t.strip()
+        for t in content.split(",")
+        if t.strip()
     ]
 
     return tickers
 
-def analyze_ticker(ticker, horizon):
 
-    close = load_data(ticker)
+# ============================
+# ANALYZE TICKER
+# ============================
 
-    if close is None:
+def analyze_ticker(ticker, horizon, strategy):
+
+    data = load_data(ticker)
+
+    if data is None:
         return None
+
+    close = data["Close"]
 
     log_ret = compute_log_returns(close)
 
@@ -326,7 +382,13 @@ def analyze_ticker(ticker, horizon):
 
     sigma = estimate_volatility_ewma(log_ret)
 
-    best, df_all = optimize_tp_sl(mu, sigma, horizon)
+    atr = compute_atr(data)
+
+    atr_pct = atr / close.iloc[-1]
+
+    best, _ = optimize_tp_sl(
+        mu, sigma, horizon, strategy, atr_pct
+    )
 
     tp = best["TP"]
     sl = best["SL"]
@@ -337,19 +399,17 @@ def analyze_ticker(ticker, horizon):
 
     EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
 
-    prob_pos = (pnl > 0).mean()
-
-    score = best["Score"]
+    prob_win = (pnl > 0).mean()
 
     return {
-        "Ticker": ticker,
-        "Score": score,
-        "EV": EV,
-        "Sharpe": sharpe,
-        "ProbWin": prob_pos,
-        "TP": tp,
-        "SL": sl,
-        "Kelly": best["Kelly"]
+        "Ticker":ticker,
+        "Score":best["Score"],
+        "ProbWin":prob_win,
+        "EV":EV,
+        "Sharpe":sharpe,
+        "TP":tp,
+        "SL":sl,
+        "Kelly":best["Kelly"]
     }
 
 
@@ -358,6 +418,11 @@ def analyze_ticker(ticker, horizon):
 # ============================
 
 st.title("Motor Quantitativo de Swing Trade")
+
+strategy = st.selectbox(
+    "Estratégia",
+    ["Conservadora","Agressiva"]
+)
 
 uploaded_file = st.file_uploader(
     "Upload arquivo .txt com tickers",
@@ -374,9 +439,13 @@ if uploaded_file and st.button("Analisar Ativos"):
 
     progress = st.progress(0)
 
-    for i, ticker in enumerate(tickers):
+    for i,ticker in enumerate(tickers):
 
-        res = analyze_ticker(ticker, horizon)
+        res = analyze_ticker(
+            ticker,
+            horizon,
+            strategy
+        )
 
         if res:
             results.append(res)
@@ -389,9 +458,11 @@ if uploaded_file and st.button("Analisar Ativos"):
         st.error("Nenhum ativo válido.")
         st.stop()
 
-    top5 = df.sort_values("Score", ascending=False).head(5)
+    top5 = df.sort_values(
+        "Score",
+        ascending=False
+    ).head(5)
 
     st.subheader("Top 5 Ativos para Swing")
-    st.dataframe(top5)
 
-    
+    st.dataframe(top5)
