@@ -4,9 +4,10 @@ import pandas as pd
 import yfinance as yf
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
+from scipy.stats import t
 
 # ============================
-# DATA LAYER (ROBUSTO)
+# DATA LAYER
 # ============================
 
 def load_data(ticker, period="5y"):
@@ -25,9 +26,6 @@ def load_data(ticker, period="5y"):
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
 
-        if "Close" not in data.columns:
-            return None
-
         close = data["Close"].dropna()
 
         if len(close) < 300:
@@ -40,64 +38,76 @@ def load_data(ticker, period="5y"):
 
 
 # ============================
-# PARAMETER ESTIMATION
+# RETURNS
 # ============================
 
-def estimate_params(close, window=252):
+def compute_log_returns(close):
 
     log_ret = np.log(close / close.shift(1)).dropna()
 
-    if len(log_ret) < window:
-        raise ValueError("Dados insuficientes.")
-
-    mu_series = log_ret.rolling(window).mean()
-    sigma_series = log_ret.rolling(window).std()
-
-    mu = float(mu_series.iloc[-1])
-    sigma = float(sigma_series.iloc[-1])
-
-    return mu, sigma
+    return log_ret
 
 
 # ============================
-# HITTING PROBABILITY
+# DRIFT (SHRINKAGE)
 # ============================
 
-def hitting_probability(mu, sigma, tp, sl):
+def estimate_drift(log_ret):
 
-    if sigma <= 0:
-        return 0.0, 0.0
+    mu_hist = log_ret.mean()
 
-    if abs(mu) < 1e-8:
-        p_tp = sl / (tp + sl)
-        return p_tp, 1 - p_tp
+    shrink = 0.25
 
-    a = 2 * mu / (sigma ** 2)
+    mu = shrink * mu_hist
 
-    num = 1 - np.exp(-a * sl)
-    den = np.exp(a * tp) - np.exp(-a * sl)
-
-    if den == 0:
-        return 0.5, 0.5
-
-    p_tp = num / den
-    p_tp = float(np.clip(p_tp, 0, 1))
-
-    return p_tp, 1 - p_tp
+    return float(mu)
 
 
 # ============================
-# MONTE CARLO ENGINE
+# VOLATILITY EWMA
+# ============================
+
+def estimate_volatility_ewma(log_ret, lam=0.94):
+
+    var = log_ret.var()
+
+    for r in log_ret:
+        var = lam * var + (1 - lam) * (r**2)
+
+    return float(np.sqrt(var))
+
+
+# ============================
+# STUDENT T RETURNS
+# ============================
+
+def simulate_returns(mu, sigma, horizon, n_sim, df=5):
+
+    shocks = t.rvs(df, size=(n_sim, horizon))
+
+    scale = sigma / np.sqrt(df/(df-2))
+
+    returns = mu + scale * shocks
+
+    return returns
+
+
+# ============================
+# PRICE PATHS
 # ============================
 
 def simulate_paths(mu, sigma, horizon, n_sim=5000):
 
-    eps = np.random.randn(n_sim, horizon)
-    returns = mu + sigma * eps
-    paths = np.cumsum(returns, axis=1)
+    returns = simulate_returns(mu, sigma, horizon, n_sim)
 
-    return paths
+    log_price = np.cumsum(returns, axis=1)
 
+    return log_price
+
+
+# ============================
+# TRADE DISTRIBUTION
+# ============================
 
 def simulate_trade_distribution(mu, sigma, tp, sl, horizon, n_sim=5000):
 
@@ -134,32 +144,66 @@ def risk_metrics(pnl):
     EV = pnl.mean()
 
     std = pnl.std()
+
     sharpe = EV / std if std > 0 else 0
 
     cum = np.cumsum(pnl)
 
     drawdown = cum - np.maximum.accumulate(cum)
+
     max_dd = drawdown.min()
 
-    cvar = pnl[pnl <= np.quantile(pnl, 0.05)].mean()
+    cvar = pnl[pnl <= np.quantile(pnl,0.05)].mean()
 
-    return EV, sharpe, max_dd, cvar
+    skew = pd.Series(pnl).skew()
+
+    return EV, sharpe, max_dd, cvar, skew
 
 
 # ============================
-# KELLY CONTINUOUS
+# GROWTH RATE
+# ============================
+
+def growth_rate(pnl):
+
+    pnl = np.clip(pnl, -0.99, None)
+
+    return np.mean(np.log(1+pnl))
+
+
+# ============================
+# OBJECTIVE FUNCTION
+# ============================
+
+def objective(pnl):
+
+    EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
+
+    growth = growth_rate(pnl)
+
+    score = growth - 0.5*abs(cvar) - 0.2*abs(max_dd)
+
+    score += 0.3 * skew
+
+    return score
+
+
+# ============================
+# KELLY
 # ============================
 
 def kelly_continuous(pnl):
 
-    f_grid = np.linspace(0, 0.5, 200)
+    f_grid = np.linspace(0,0.5,200)
 
     best_f = 0
     best_val = -np.inf
 
+    pnl = np.clip(pnl,-0.99,None)
+
     for f in f_grid:
 
-        val = np.mean(np.log(1 + f * pnl))
+        val = np.mean(np.log(1+f*pnl))
 
         if val > best_val:
             best_val = val
@@ -174,80 +218,134 @@ def kelly_continuous(pnl):
 
 def optimize_tp_sl(mu, sigma, horizon):
 
-    tp_range = np.linspace(0.01, 0.20, 12)
-    sl_range = np.linspace(0.01, 0.20, 12)
+    tp_range = np.linspace(0.01,0.25,15)
+    sl_range = np.linspace(0.01,0.25,15)
 
     rows = []
+
+    best_score = -np.inf
+    best_row = None
 
     for tp in tp_range:
         for sl in sl_range:
 
             pnl = simulate_trade_distribution(
-                mu, sigma, tp, sl, horizon
+                mu,sigma,tp,sl,horizon
             )
 
-            EV, sharpe, max_dd, cvar = risk_metrics(pnl)
+            EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
+
+            score = objective(pnl)
+
             kelly = kelly_continuous(pnl)
 
-            rows.append({
-                "TP": tp,
-                "SL": sl,
-                "EV": EV,
-                "Sharpe": sharpe,
-                "MaxDD": max_dd,
-                "CVaR": cvar,
-                "Kelly": min(kelly, 0.25)
-            })
+            row = {
+                "TP":tp,
+                "SL":sl,
+                "EV":EV,
+                "Sharpe":sharpe,
+                "MaxDD":max_dd,
+                "CVaR":cvar,
+                "Skew":skew,
+                "Kelly":min(kelly,0.25),
+                "Score":score
+            }
+
+            rows.append(row)
+
+            if score > best_score:
+                best_score = score
+                best_row = row
 
     df = pd.DataFrame(rows)
-    
 
-    best = df.sort_values("EV", ascending=False).iloc[0]
+    return best_row, df
 
-    return best, df
+
+# ============================
+# REGRESSION CHART
+# ============================
+
+def plot_regression(close):
+
+    df = pd.DataFrame({"price":close})
+
+    df["t"] = np.arange(len(df))
+
+    coef = np.polyfit(df["t"],df["price"],1)
+
+    trend = np.poly1d(coef)
+
+    df["trend"] = trend(df["t"])
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=df["price"],
+            mode="lines",
+            name="Preço"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=df["trend"],
+            mode="lines",
+            name="Regressão",
+            line=dict(dash="dash")
+        )
+    )
+
+    return fig
 
 
 # ============================
 # STREAMLIT UI
 # ============================
 
-st.title("⚔️ Motor Quantitativo de Swing Trade")
+st.title("Motor Quantitativo de Swing Trade")
 
-ticker = st.text_input("Ticker", "PETR4.SA")
-horizon = st.slider("Horizonte (dias)", 5, 60, 15)
+ticker = st.text_input("Ticker","PETR4.SA")
+
+horizon = st.slider("Horizonte (dias)",5,60,15)
 
 if st.button("Analisar"):
 
     close = load_data(ticker)
 
     if close is None:
-        st.error("Erro ao carregar dados do ticker.")
+        st.error("Erro ao carregar dados.")
         st.stop()
 
-    try:
-        mu, sigma = estimate_params(close)
-    except:
-        st.error("Dados insuficientes para estimar parâmetros.")
-        st.stop()
+    log_ret = compute_log_returns(close)
+
+    mu = estimate_drift(log_ret)
+
+    sigma = estimate_volatility_ewma(log_ret)
 
     S0 = float(close.iloc[-1])
 
-    retorno_esperado = mu * horizon
-    preco_esperado = S0 * np.exp(retorno_esperado)
+    retorno_esperado = mu*horizon
 
-    best, df_all = optimize_tp_sl(mu, sigma, horizon)
+    preco_esperado = S0*np.exp(retorno_esperado)
 
-    tp = float(best["TP"])
-    sl = float(best["SL"])
+    best, df_all = optimize_tp_sl(mu,sigma,horizon)
 
-    p_tp, p_sl = hitting_probability(mu, sigma, tp, sl)
+    tp = best["TP"]
+    sl = best["SL"]
 
-    pnl = simulate_trade_distribution(mu, sigma, tp, sl, horizon)
+    pnl = simulate_trade_distribution(
+        mu,sigma,tp,sl,horizon
+    )
 
-    EV, sharpe, max_dd, cvar = risk_metrics(pnl)
+    EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
+
     kelly = kelly_continuous(pnl)
 
-    prob_pos = float((pnl > 0).mean())
+    prob_pos = (pnl>0).mean()
 
     st.subheader(ticker)
 
@@ -257,29 +355,32 @@ if st.button("Analisar"):
 
     st.write(f"Probabilidade retorno positivo: {prob_pos*100:.2f}%")
 
-    st.subheader("Probabilidades Condicionais")
+    st.subheader("TP / SL Ideais")
 
-    st.write(f"TP antes do SL: {p_tp*100:.2f}%")
-    st.write(f"SL antes do TP: {p_sl*100:.2f}%")
+    st.write(f"TP: {tp*100:.2f}%")
+    st.write(f"SL: {sl*100:.2f}%")
 
-    st.subheader("TP/SL Ideais")
+    st.subheader("Métricas")
 
-    st.write(f"TP Ideal: {tp*100:.2f}%")
-    st.write(f"SL Ideal: {sl*100:.2f}%")
-    st.write(f"Valor Esperado: {best['EV']:.4f}")
+    st.write(f"Sharpe: {sharpe:.3f}")
+    st.write(f"Max Drawdown: {max_dd:.3f}")
+    st.write(f"CVaR 5%: {cvar:.3f}")
+    st.write(f"Skewness: {skew:.3f}")
 
-    st.subheader("Métricas de Risco")
+    st.subheader("Kelly")
 
-    st.write(f"Sharpe: {sharpe:.4f}")
-    st.write(f"Max Drawdown: {max_dd:.4f}")
-    st.write(f"CVaR 5%: {cvar:.4f}")
-
-    st.subheader("Kelly Ótimo")
-
-    st.write(f"Fração: {kelly:.2f}")
+    st.write(f"Fração ótima: {kelly:.2f}")
 
     st.subheader("Distribuição de PnL")
 
     fig, ax = plt.subplots()
-    ax.hist(pnl, bins=40)
+
+    ax.hist(pnl,bins=40)
+
     st.pyplot(fig)
+
+    st.subheader("Cotação + Tendência")
+
+    fig2 = plot_regression(close)
+
+    st.plotly_chart(fig2,use_container_width=True)
