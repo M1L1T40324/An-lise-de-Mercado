@@ -5,8 +5,6 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 
-np.random.seed(578390)
-
 # ============================
 # DATA LAYER (ROBUSTO)
 # ============================
