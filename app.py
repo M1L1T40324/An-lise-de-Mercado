@@ -5,54 +5,7 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 
-def plot_price_regression(data, ticker):
-
-    df = data.copy()
-
-    df = df.dropna()
-    df["t"] = np.arange(len(df))
-
-    # regressão linear
-    coef = np.polyfit(df["t"], df["Close"], 1)
-    trend = np.poly1d(coef)
-
-    df["trend"] = trend(df["t"])
-
-    fig = go.Figure()
-
-    # preço
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["Close"],
-            mode="lines",
-            name="Preço",
-            line=dict(width=2)
-        )
-    )
-
-    # regressão
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["trend"],
-            mode="lines",
-            name="Regressão Linear",
-            line=dict(width=3, dash="dash")
-        )
-    )
-
-    fig.update_layout(
-        title=f"{ticker} — Cotação com Tendência",
-        xaxis_title="Data",
-        yaxis_title="Preço",
-        template="plotly_dark",
-        hovermode="x unified"
-    )
-
-    return fig
-
-np.random.seed(42)
+np.random.seed(578390)
 
 # ============================
 # DATA LAYER (ROBUSTO)
@@ -249,8 +202,7 @@ def optimize_tp_sl(mu, sigma, horizon):
             })
 
     df = pd.DataFrame(rows)
-    fig = plot_price_regression(data, ticker)
-    st.plotly_chart(fig, use_container_width=True)
+    
 
     best = df.sort_values("EV", ascending=False).iloc[0]
 
