@@ -554,9 +554,6 @@ uploaded_file = st.file_uploader(
 horizon = st.slider("Horizonte (dias)",5,60,15)
 
 if uploaded_file and st.button("Analisar Ativos"):
-
-    global filter_stats
-    
     filter_stats = {
         "total":0,
         "data_fail":0,
@@ -567,6 +564,7 @@ if uploaded_file and st.button("Analisar Ativos"):
         "optimization_fail":0,
         "passed":0
     }
+    
     tickers = read_tickers(uploaded_file)
 
     results = []
