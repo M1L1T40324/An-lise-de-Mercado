@@ -337,14 +337,16 @@ def optimize_tp_sl(mu, sigma, horizon, strategy, atr_pct):
                 prob_win = (pnl > 0).mean()
 
                 # FILTROS PROFISSIONAIS
-                if (
-                    EV < 0.006 or
-                    prob_win < 0.45 or
-                    sharpe < 0.2
-                ):
-                    continue
-
-                score = objective(pnl)
+                penalty = 0
+                
+                if EV < 0:
+                    penalty -= 1
+                if prob_win < 0.4:
+                    penalty -= 0.5
+                if sharpe < 0:
+                    penalty -= 0.5
+                
+                score = objective(pnl) + penalty
 
                 kelly = kelly_continuous(pnl)
 
@@ -422,12 +424,16 @@ def read_tickers(file):
 
     content = file.read().decode("utf-8")
 
-    content = content.replace("\n",",")
-
     tickers = [
-        t.strip()
-        for t in content.split(",")
+        t.strip().upper()
+        for t in content.replace(",", "\n").split("\n")
         if t.strip()
+    ]
+
+    # adiciona .SA automaticamente
+    tickers = [
+        t if ".SA" in t else f"{t}.SA"
+        for t in tickers
     ]
 
     return tickers
@@ -519,6 +525,9 @@ uploaded_file = st.file_uploader(
     "Upload arquivo .txt com tickers",
     type=["txt"]
 )
+tickers = read_tickers(uploaded_file)
+
+st.write("Tickers carregados:", tickers[:10])
 
 horizon = st.slider("Horizonte (dias)",5,60,15)
 
@@ -542,6 +551,8 @@ if uploaded_file and st.button("Analisar Ativos"):
 
     for i,ticker in enumerate(tickers):
 
+    st.write(f"Analisando {ticker}")
+
         res = analyze_ticker(
             ticker,
             horizon,
@@ -557,13 +568,15 @@ if uploaded_file and st.button("Analisar Ativos"):
     df = pd.DataFrame(results)
 
     if df.empty:
-        st.error("Nenhum ativo válido.")
-        st.stop()
-
-    top5 = df.sort_values(
-        "Score",
-        ascending=False
-    ).head(5)
+    st.error("Nenhum ativo gerou score válido.")
+    
+    df["Rank"] = (
+        df["Score"].rank(ascending=False) +
+        df["Sharpe"].rank(ascending=False) +
+        df["EV"].rank(ascending=False) +
+        df["ProbWin"].rank(ascending=False)
+    )
+    top5 = df.sort_values("Rank").head(5)
     st.subheader("Diagnóstico do Pipeline")
     
     diag = pd.DataFrame(
