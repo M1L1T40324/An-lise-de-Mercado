@@ -160,8 +160,7 @@ if uploaded_file:
                 })
             except:
                 pass
-                    
-    results_df = pd.DataFrame(results)
+        results_df = pd.DataFrame(results)
     if results_df.empty:
         st.error("Nenhum ticker foi processado. Verifique o arquivo TXT ou conexão com dados.")
         st.stop()
