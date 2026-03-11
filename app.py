@@ -609,14 +609,4 @@ top5 = df.sort_values("Rank").head(5)
 st.subheader("Top 5 Ativos para Swing")
 
 st.dataframe(top5)
-    st.subheader("Diagnóstico do Pipeline")
-    
-    diag = pd.DataFrame(
-        list(filter_stats.items()),
-        columns=["Filtro","Quantidade"]
-    )
-    
-    st.dataframe(diag)
-    st.subheader("Top 5 Ativos para Swing")
 
-    st.dataframe(top5)
