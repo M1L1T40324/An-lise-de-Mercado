@@ -168,12 +168,11 @@ if uploaded_file:
             st.error("A coluna Score não foi criada. Verifique o cálculo do score.")
             st.write(results_df)
             st.stop()
-   
-    results_df = results_df.sort_values("Score", ascending=False)
-    top5 = results_df.head(5)
-
-    st.subheader("Top 5 Tickers")
-    st.dataframe(top5)
+        
+        results_df = results_df.sort_values("Score", ascending=False)
+        top5 = results_df.head(5)
+        st.subheader("Top 5 Tickers")
+        st.dataframe(top5)
 
 # ----------------------------------------------------
 
