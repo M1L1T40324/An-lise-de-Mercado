@@ -575,7 +575,7 @@ if uploaded_file and st.button("Analisar Ativos"):
             ticker,
             horizon,
             strategy,
-            filtr_stats
+            filter_stats
         )
 
         if res:
