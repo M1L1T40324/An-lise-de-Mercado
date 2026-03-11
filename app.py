@@ -249,55 +249,115 @@ def kelly_continuous(pnl):
 
 def optimize_tp_sl(mu, sigma, horizon, strategy, atr_pct):
 
+    rows = []
+    best_row = None
+    best_score = -np.inf
+
     if strategy == "Conservadora":
 
         tp_range = np.linspace(0.01,0.02,8)
-        sl = atr_pct * 1.2
+        sl = max(atr_pct*1.2,0.01)
 
         objective = objective_conservative
 
     else:
 
-        tp_range = np.linspace(0.04,0.10,10)
-        sl = atr_pct * 2.0
+        # NOVA ESTRATÉGIA AGRESSIVA
+
+        tp_range = np.linspace(0.03,0.06,10)
+
+        sl_base = max(atr_pct*1.5,0.015)
+
+        sl_range = np.linspace(sl_base,0.04,8)
 
         objective = objective_aggressive
 
 
-    best_score = -np.inf
-    best_row = None
-    rows = []
+    if strategy == "Conservadora":
 
-    for tp in tp_range:
+        for tp in tp_range:
 
-        pnl = simulate_trade_distribution(
-            mu,sigma,tp,sl,horizon
-        )
+            pnl = simulate_trade_distribution(
+                mu,sigma,tp,sl,horizon
+            )
 
-        EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
+            EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
 
-        score = objective(pnl)
+            prob_win = (pnl > 0).mean()
 
-        kelly = kelly_continuous(pnl)
+            score = objective(pnl)
 
-        row = {
-            "TP":tp,
-            "SL":sl,
-            "EV":EV,
-            "Sharpe":sharpe,
-            "MaxDD":max_dd,
-            "CVaR":cvar,
-            "Skew":skew,
-            "Kelly":min(kelly,0.25),
-            "Score":score
-        }
+            kelly = kelly_continuous(pnl)
 
-        rows.append(row)
+            row = {
+                "TP":tp,
+                "SL":sl,
+                "EV":EV,
+                "Sharpe":sharpe,
+                "ProbWin":prob_win,
+                "MaxDD":max_dd,
+                "CVaR":cvar,
+                "Skew":skew,
+                "Kelly":min(kelly,0.25),
+                "Score":score
+            }
 
-        if score > best_score:
+            rows.append(row)
 
-            best_score = score
-            best_row = row
+            if score > best_score:
+
+                best_score = score
+                best_row = row
+
+
+    else:
+
+        # OTIMIZAÇÃO AGRESSIVA COM FILTROS
+
+        for tp in tp_range:
+
+            for sl in sl_range:
+
+                pnl = simulate_trade_distribution(
+                    mu,sigma,tp,sl,horizon
+                )
+
+                EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
+
+                prob_win = (pnl > 0).mean()
+
+                # FILTROS PROFISSIONAIS
+                if (
+                    EV < 0.01 or
+                    prob_win < 0.45 or
+                    sharpe < 0.3
+                ):
+                    continue
+
+                score = objective(pnl)
+
+                kelly = kelly_continuous(pnl)
+
+                row = {
+                    "TP":tp,
+                    "SL":sl,
+                    "EV":EV,
+                    "Sharpe":sharpe,
+                    "ProbWin":prob_win,
+                    "MaxDD":max_dd,
+                    "CVaR":cvar,
+                    "Skew":skew,
+                    "Kelly":min(kelly,0.25),
+                    "Score":score
+                }
+
+                rows.append(row)
+
+                if score > best_score:
+
+                    best_score = score
+                    best_row = row
+
 
     df = pd.DataFrame(rows)
 
@@ -386,9 +446,11 @@ def analyze_ticker(ticker, horizon, strategy):
 
     atr_pct = atr / close.iloc[-1]
 
-    best, _ = optimize_tp_sl(
+    best, df_all = optimize_tp_sl(
         mu, sigma, horizon, strategy, atr_pct
     )
+    if best is None:
+        return None
 
     tp = best["TP"]
     sl = best["SL"]
