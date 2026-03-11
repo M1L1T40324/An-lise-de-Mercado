@@ -555,6 +555,17 @@ horizon = st.slider("Horizonte (dias)",5,60,15)
 
 if uploaded_file and st.button("Analisar Ativos"):
 
+    global filter_stats
+    filter_stats = {
+        "total":0,
+        "data_fail":0,
+        "low_history":0,
+        "low_volatility":0,
+        "trend_fail":0,
+        "low_liquidity":0,
+        "optimization_fail":0,
+        "passed":0
+    }
     tickers = read_tickers(uploaded_file)
 
     results = []
