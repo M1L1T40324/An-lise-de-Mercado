@@ -567,16 +567,48 @@ if uploaded_file and st.button("Analisar Ativos"):
 
     df = pd.DataFrame(results)
 
-    if df.empty:
-        st.error("Nenhum ativo gerou score válido.")
-    
-    df["Rank"] = (
-        df["Score"].rank(ascending=False) +
-        df["Sharpe"].rank(ascending=False) +
-        df["EV"].rank(ascending=False) +
-        df["ProbWin"].rank(ascending=False)
-    )
-    top5 = df.sort_values("Rank").head(5)
+    df = pd.DataFrame(results)
+
+st.subheader("Diagnóstico do Pipeline")
+
+diag = pd.DataFrame(
+    list(filter_stats.items()),
+    columns=["Filtro","Quantidade"]
+)
+
+st.dataframe(diag)
+
+# se nenhum ativo retornou métricas
+if df.empty:
+
+    st.error("Nenhum ativo conseguiu gerar métricas.")
+
+    st.write("Tickers analisados:", tickers[:10])
+
+    st.stop()
+
+# garantir que colunas existem
+required_cols = ["Score","Sharpe","EV","ProbWin"]
+
+for col in required_cols:
+    if col not in df.columns:
+        st.error(f"Coluna faltando: {col}")
+        st.write(df.head())
+        st.stop()
+
+# ranking multifator
+df["Rank"] = (
+    df["Score"].rank(ascending=False) +
+    df["Sharpe"].rank(ascending=False) +
+    df["EV"].rank(ascending=False) +
+    df["ProbWin"].rank(ascending=False)
+)
+
+top5 = df.sort_values("Rank").head(5)
+
+st.subheader("Top 5 Ativos para Swing")
+
+st.dataframe(top5)
     st.subheader("Diagnóstico do Pipeline")
     
     diag = pd.DataFrame(
