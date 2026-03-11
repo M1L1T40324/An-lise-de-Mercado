@@ -158,8 +158,8 @@ if uploaded_file:
                     "Expected_Return":exp_return,
                     **kpis
                 })
-        except:
-        pass
+            except:
+                pass
                     
     results_df = pd.DataFrame(results)
     if results_df.empty:
