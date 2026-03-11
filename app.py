@@ -424,12 +424,21 @@ def read_tickers(file):
 
 def analyze_ticker(ticker, horizon, strategy):
 
+    global filter_stats
+
+    filter_stats["total"] += 1
+
     data = load_data(ticker)
 
     if data is None:
+        filter_stats["data_fail"] += 1
         return None
 
     close = data["Close"]
+
+    if len(close) < 300:
+        filter_stats["low_history"] += 1
+        return None
 
     log_ret = compute_log_returns(close)
 
@@ -437,20 +446,32 @@ def analyze_ticker(ticker, horizon, strategy):
 
     sigma = estimate_volatility_ewma(log_ret)
 
-    # VOLATILIDADE ANUAL
+    # =====================
+    # VOLATILIDADE
+    # =====================
+
     vol_annual = sigma * np.sqrt(252)
 
     if vol_annual < 0.20:
+        filter_stats["low_volatility"] += 1
         return None
 
+    # =====================
     # TENDÊNCIA
+    # =====================
+
     ma100 = close.rolling(100).mean().iloc[-1]
 
     if close.iloc[-1] < ma100:
+        filter_stats["trend_fail"] += 1
         return None
 
+    # =====================
     # LIQUIDEZ
+    # =====================
+
     if data["Volume"].mean() < 200000:
+        filter_stats["low_liquidity"] += 1
         return None
 
     atr = compute_atr(data)
@@ -466,6 +487,7 @@ def analyze_ticker(ticker, horizon, strategy):
     )
 
     if best is None:
+        filter_stats["optimization_fail"] += 1
         return None
 
     tp = best["TP"]
@@ -482,6 +504,8 @@ def analyze_ticker(ticker, horizon, strategy):
     EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
 
     prob_win = (pnl > 0).mean()
+
+    filter_stats["passed"] += 1
 
     return {
         "Ticker":ticker,
@@ -545,7 +569,13 @@ if uploaded_file and st.button("Analisar Ativos"):
         "Score",
         ascending=False
     ).head(5)
-
+    st.subheader("Diagnóstico do Pipeline")
+    diag = pd.DataFrame(
+        list(filter_stats.items()),
+        columns=["Filtro","Quantidade"]
+    )
+    
+    st.dataframe(diag)
     st.subheader("Top 5 Ativos para Swing")
 
     st.dataframe(top5)
