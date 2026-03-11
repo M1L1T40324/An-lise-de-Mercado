@@ -437,9 +437,7 @@ def read_tickers(file):
 # ANALYZE TICKER
 # ============================
 
-def analyze_ticker(ticker, horizon, strategy):
-
-    global filter_stats
+def analyze_ticker(ticker, horizon, strategy, filter_stats):
 
     filter_stats["total"] += 1
 
@@ -576,7 +574,8 @@ if uploaded_file and st.button("Analisar Ativos"):
         res = analyze_ticker(
             ticker,
             horizon,
-            strategy
+            strategy,
+            filtr_stats
         )
 
         if res:
@@ -595,6 +594,7 @@ if uploaded_file and st.button("Analisar Ativos"):
         ascending=False
     ).head(5)
     st.subheader("Diagnóstico do Pipeline")
+    
     diag = pd.DataFrame(
         list(filter_stats.items()),
         columns=["Filtro","Quantidade"]
