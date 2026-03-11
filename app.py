@@ -169,21 +169,20 @@ if uploaded_file:
 
         except:
             pass
+    results_df = pd.DataFrame(results)
+    if results_df.empty:
+        st.error("Nenhum ticker foi processado. Verifique o arquivo TXT ou conexão com dados.")
+        st.stop()
+    if "Score" not in results_df.columns:
+        st.error("A coluna Score não foi criada. Verifique o cálculo do score.")
+        st.write(results_df)
+        st.stop()
+   
+    results_df = results_df.sort_values("Score", ascending=False)
+    top5 = results_df.head(5)
 
-   results_df = pd.DataFrame(results)
-   if results_df.empty:
-       st.error("Nenhum ticker foi processado. Verifique o arquivo TXT ou conexão com dados.")
-       st.stop()
-
-   if "Score" not in results_df.columns:
-       st.error("A coluna Score não foi criada. Verifique o cálculo do score.")
-       st.write(results_df)
-       st.stop()
-   results_df = results_df.sort_values("Score", ascending=False)
-   top5 = results_df.head(5)
-
-   st.subheader("Top 5 Tickers")
-   st.dataframe(top5)
+    st.subheader("Top 5 Tickers")
+    st.dataframe(top5)
 
 # ----------------------------------------------------
 
