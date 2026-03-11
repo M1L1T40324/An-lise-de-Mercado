@@ -7,6 +7,21 @@ import plotly.graph_objects as go
 from scipy.stats import t
 
 # ============================
+# PIPELINE DIAGNOSTICS
+# ============================
+
+filter_stats = {
+    "total":0,
+    "data_fail":0,
+    "low_history":0,
+    "low_volatility":0,
+    "trend_fail":0,
+    "low_liquidity":0,
+    "optimization_fail":0,
+    "passed":0
+}
+
+# ============================
 # DATA LAYER
 # ============================
 
