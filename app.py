@@ -550,8 +550,8 @@ if uploaded_file and st.button("Analisar Ativos"):
     progress = st.progress(0)
 
     for i,ticker in enumerate(tickers):
-
-    st.write(f"Analisando {ticker}")
+        
+        st.write(f"Analisando {ticker}")
 
         res = analyze_ticker(
             ticker,
