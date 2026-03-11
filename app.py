@@ -175,66 +175,53 @@ if uploaded_file:
         st.dataframe(top5)
 
 # ----------------------------------------------------
-
-    for ticker in top5["Ticker"]:
-
-        st.header(ticker)
-
-        df = raw_data[ticker]
-
-        kpis = results_df[results_df["Ticker"]==ticker].iloc[0]
-
-        st.write("KPIs")
-
-        st.write(kpis)
-
-# ----------------------------------------------------
-# gráfico preço + regressão
-
-        x = np.arange(len(df)).reshape(-1,1)
-
-        y = df["Close"].values
-
-        model = LinearRegression()
-
-        model.fit(x,y)
-
-        reg = model.predict(x)
-
-        fig = go.Figure()
-
-        fig.add_trace(
-            go.Scatter(
-                x=df.index,
-                y=df["Close"],
-                name="Price"
+        for ticker in top5["Ticker"]:
+            st.header(ticker)
+            
+            df = raw_data[ticker]
+            
+            kpis = results_df[results_df["Ticker"]==ticker].iloc[0]
+            st.write("KPIs")
+            st.write(kpis)
+            
+            x = np.arange(len(df)).reshape(-1,1)
+            y = df["Close"].values
+            
+            model = LinearRegression()
+            model.fit(x,y)
+            
+            reg = model.predict(x)
+            
+            fig = go.Figure()
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=df["Close"],
+                    name="Price"
+                )
             )
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=df.index,
-                y=reg,
-                name="Regression"
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=reg,
+                    name="Regression"
+                )
             )
-        )
-
-        st.plotly_chart(fig)
-
-# ----------------------------------------------------
-# Monte Carlo Histogram
-
-        st.subheader("Monte Carlo Distribution")
-
-        sim_returns = simulations[ticker]
-
-        hist = go.Figure()
-
-        hist.add_trace(
-            go.Histogram(
-                x=sim_returns,
-                nbinsx=50
+            
+            st.plotly_chart(fig)
+            
+            st.subheader("Monte Carlo Distribution")
+            
+            sim_returns = simulations[ticker]
+            
+            hist = go.Figure()
+            
+            hist.add_trace(
+                go.Histogram(
+                    x=sim_returns,
+                    nbinsx=50
+                )
             )
-        )
-
-        st.plotly_chart(hist)
+            st.plotly_chart(hist)
