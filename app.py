@@ -126,49 +126,41 @@ def score_asset(prob_tp, exp_return, sharpe, momentum):
 # ----------------------------------------------------
 
 if uploaded_file:
-
-    tickers = load_tickers(uploaded_file)
-
-    results = []
-
-    raw_data = {}
-
-    simulations = {}
-
-    for ticker in tickers:
-
-        try:
-
-            df = download_data(ticker)
-
-            raw_data[ticker] = df
-
-            kpis = calculate_kpis(df)
-
-            prob_tp,prob_sl,exp_return,final_returns = monte_carlo_prob(
-                df,period_days,tp,sl,n_simulations
-            )
-
-            simulations[ticker] = final_returns
-
-            score = score_asset(
-                prob_tp,
-                exp_return,
-                kpis["sharpe"],
-                kpis["momentum"]
-            )
-
-            results.append({
-                "Ticker":ticker,
-                "Score":score,
-                "Prob_TP":prob_tp,
-                "Prob_SL":prob_sl,
-                "Expected_Return":exp_return,
-                **kpis
-            })
-
-        except:
-            pass
+    if st.button("Analisar"):
+        tickers = load_tickers(uploaded_file)
+        
+        results = []
+        
+        raw_data = {}
+        
+        simulations = {}
+        
+        for ticker in tickers:
+            try:
+                df = download_data(ticker)
+                raw_data[ticker] = df
+                kpis = calculate_kpis(df)
+                prob_tp,prob_sl,exp_return,final_returns = monte_carlo_prob(
+                    df,period_days,tp,sl,n_simulations
+                )
+                simulations[ticker] = final_returns
+                score = score_asset(
+                    prob_tp,
+                    exp_return,
+                    kpis["sharpe"],
+                    kpis["momentum"]
+                )
+                results.append({
+                    "Ticker":ticker,
+                    "Score":score,
+                    "Prob_TP":prob_tp,
+                    "Prob_SL":prob_sl,
+                    "Expected_Return":exp_return,
+                    **kpis
+                })
+                except:
+                    pass
+                    
     results_df = pd.DataFrame(results)
     if results_df.empty:
         st.error("Nenhum ticker foi processado. Verifique o arquivo TXT ou conexão com dados.")
