@@ -568,7 +568,7 @@ if uploaded_file and st.button("Analisar Ativos"):
     df = pd.DataFrame(results)
 
     if df.empty:
-    st.error("Nenhum ativo gerou score válido.")
+        st.error("Nenhum ativo gerou score válido.")
     
     df["Rank"] = (
         df["Score"].rank(ascending=False) +
