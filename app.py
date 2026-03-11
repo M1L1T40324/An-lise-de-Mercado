@@ -262,12 +262,9 @@ def optimize_tp_sl(mu, sigma, horizon, strategy, atr_pct):
 
     else:
 
-        # NOVA ESTRATÉGIA AGRESSIVA
-
         tp_range = np.linspace(0.03,0.06,10)
 
         sl_base = max(atr_pct*1.5,0.015)
-
         sl_range = np.linspace(sl_base,0.04,8)
 
         objective = objective_aggressive
@@ -312,8 +309,6 @@ def optimize_tp_sl(mu, sigma, horizon, strategy, atr_pct):
 
     else:
 
-        # OTIMIZAÇÃO AGRESSIVA COM FILTROS
-
         for tp in tp_range:
 
             for sl in sl_range:
@@ -328,9 +323,9 @@ def optimize_tp_sl(mu, sigma, horizon, strategy, atr_pct):
 
                 # FILTROS PROFISSIONAIS
                 if (
-                    EV < 0.01 or
+                    EV < 0.006 or
                     prob_win < 0.45 or
-                    sharpe < 0.3
+                    sharpe < 0.2
                 ):
                     continue
 
@@ -442,13 +437,34 @@ def analyze_ticker(ticker, horizon, strategy):
 
     sigma = estimate_volatility_ewma(log_ret)
 
+    # VOLATILIDADE ANUAL
+    vol_annual = sigma * np.sqrt(252)
+
+    if vol_annual < 0.20:
+        return None
+
+    # TENDÊNCIA
+    ma100 = close.rolling(100).mean().iloc[-1]
+
+    if close.iloc[-1] < ma100:
+        return None
+
+    # LIQUIDEZ
+    if data["Volume"].mean() < 200000:
+        return None
+
     atr = compute_atr(data)
 
     atr_pct = atr / close.iloc[-1]
 
     best, df_all = optimize_tp_sl(
-        mu, sigma, horizon, strategy, atr_pct
+        mu,
+        sigma,
+        horizon,
+        strategy,
+        atr_pct
     )
+
     if best is None:
         return None
 
@@ -456,7 +472,11 @@ def analyze_ticker(ticker, horizon, strategy):
     sl = best["SL"]
 
     pnl = simulate_trade_distribution(
-        mu, sigma, tp, sl, horizon
+        mu,
+        sigma,
+        tp,
+        sl,
+        horizon
     )
 
     EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
@@ -471,7 +491,8 @@ def analyze_ticker(ticker, horizon, strategy):
         "Sharpe":sharpe,
         "TP":tp,
         "SL":sl,
-        "Kelly":best["Kelly"]
+        "Kelly":best["Kelly"],
+        "VolAnual":vol_annual
     }
 
 
