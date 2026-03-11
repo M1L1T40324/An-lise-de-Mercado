@@ -1,612 +1,246 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
+import numpy as np
 import yfinance as yf
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
-from scipy.stats import t
+from sklearn.linear_model import LinearRegression
 
-# ============================
-# PIPELINE DIAGNOSTICS
-# ============================
+st.title("Market Probability Scanner")
 
-filter_stats = {
-    "total":0,
-    "data_fail":0,
-    "low_history":0,
-    "low_volatility":0,
-    "trend_fail":0,
-    "low_liquidity":0,
-    "optimization_fail":0,
-    "passed":0
-}
+uploaded_file = st.file_uploader("Upload TXT com tickers", type="txt")
 
-# ============================
-# DATA LAYER
-# ============================
+period_days = st.number_input("Período de previsão (dias)", value=10)
 
-@st.cache_data
-def load_data(ticker, period="5y"):
+tp = st.number_input("Take Profit (%)", value=5.0)/100
+sl = st.number_input("Stop Loss (%)", value=3.0)/100
 
-    try:
-        data = yf.download(
-            ticker,
-            period=period,
-            auto_adjust=True,
-            progress=False
-        )
+n_simulations = st.number_input("Simulações Monte Carlo", value=500)
 
-        if data.empty:
-            return None
+# ----------------------------------------------------
 
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
+def load_tickers(file):
 
-        close = data["Close"].dropna()
-
-        if len(close) < 300:
-            return None
-
-        return data
-
-    except:
-        return None
-
-
-# ============================
-# RETURNS
-# ============================
-
-def compute_log_returns(close):
-
-    return np.log(close / close.shift(1)).dropna()
-
-
-# ============================
-# DRIFT (SHRINKAGE)
-# ============================
-
-def estimate_drift(log_ret):
-
-    mu_hist = log_ret.mean()
-
-    shrink = 0.25
-
-    return float(shrink * mu_hist)
-
-
-# ============================
-# VOLATILITY EWMA
-# ============================
-
-def estimate_volatility_ewma(log_ret, lam=0.94):
-
-    var = log_ret.var()
-
-    for r in log_ret:
-        var = lam * var + (1 - lam) * (r**2)
-
-    return float(np.sqrt(var))
-
-
-# ============================
-# ATR VOLATILITY
-# ============================
-
-def compute_atr(data, window=14):
-
-    high = data["High"]
-    low = data["Low"]
-    close = data["Close"]
-
-    tr1 = high - low
-    tr2 = abs(high - close.shift())
-    tr3 = abs(low - close.shift())
-
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-    atr = tr.rolling(window).mean()
-
-    return float(atr.iloc[-1])
-
-
-# ============================
-# STUDENT T RETURNS
-# ============================
-
-def simulate_returns(mu, sigma, horizon, n_sim=4000, df=5):
-
-    shocks = t.rvs(df, size=(n_sim, horizon))
-
-    scale = sigma / np.sqrt(df/(df-2))
-
-    returns = mu + scale * shocks
-
-    return returns
-
-
-# ============================
-# PATHS
-# ============================
-
-def simulate_paths(mu, sigma, horizon, n_sim=4000):
-
-    returns = simulate_returns(mu, sigma, horizon, n_sim)
-
-    return np.cumsum(returns, axis=1)
-
-
-# ============================
-# TRADE DISTRIBUTION
-# ============================
-
-def simulate_trade_distribution(mu, sigma, tp, sl, horizon):
-
-    paths = simulate_paths(mu, sigma, horizon)
-
-    pnl = []
-
-    for path in paths:
-
-        tp_hit = np.where(path >= tp)[0]
-        sl_hit = np.where(path <= -sl)[0]
-
-        tp_time = tp_hit[0] if len(tp_hit) else np.inf
-        sl_time = sl_hit[0] if len(sl_hit) else np.inf
-
-        if tp_time < sl_time:
-            pnl.append(tp)
-
-        elif sl_time < tp_time:
-            pnl.append(-sl)
-
-        else:
-            pnl.append(path[-1])
-
-    return np.array(pnl)
-
-
-# ============================
-# RISK METRICS
-# ============================
-
-def risk_metrics(pnl):
-
-    EV = pnl.mean()
-
-    std = pnl.std()
-
-    sharpe = EV/std if std > 0 else 0
-
-    cum = np.cumsum(pnl)
-
-    dd = cum - np.maximum.accumulate(cum)
-
-    max_dd = dd.min()
-
-    cvar = pnl[pnl <= np.quantile(pnl,0.05)].mean()
-
-    skew = pd.Series(pnl).skew()
-
-    return EV, sharpe, max_dd, cvar, skew
-
-
-# ============================
-# OBJECTIVE CONSERVATIVE
-# ============================
-
-def objective_conservative(pnl):
-
-    EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
-
-    prob_win = (pnl > 0).mean()
-
-    score = (
-        2.0 * prob_win +
-        0.6 * sharpe +
-        0.5 * EV -
-        1.5 * abs(max_dd) -
-        1.5 * abs(cvar)
-    )
-
-    return score
-
-
-# ============================
-# OBJECTIVE AGGRESSIVE
-# ============================
-
-def objective_aggressive(pnl):
-
-    EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
-
-    growth = np.mean(np.log(1 + np.clip(pnl,-0.99,None)))
-
-    score = (
-        1.4 * growth +
-        1.0 * EV +
-        0.4 * sharpe +
-        0.4 * skew -
-        0.8 * abs(max_dd)
-    )
-
-    return score
-
-
-# ============================
-# KELLY
-# ============================
-
-def kelly_continuous(pnl):
-
-    pnl = np.clip(pnl,-0.99,None)
-
-    f_grid = np.linspace(0,0.5,150)
-
-    best_f = 0
-    best_val = -np.inf
-
-    for f in f_grid:
-
-        val = np.mean(np.log(1+f*pnl))
-
-        if val > best_val:
-
-            best_val = val
-            best_f = f
-
-    return best_f
-
-
-# ============================
-# TP SL OPTIMIZATION
-# ============================
-
-def optimize_tp_sl(mu, sigma, horizon, strategy, atr_pct):
-
-    rows = []
-    best_row = None
-    best_score = -np.inf
-
-    if strategy == "Conservadora":
-
-        tp_range = np.linspace(0.01,0.02,8)
-        sl = max(atr_pct*1.2,0.01)
-
-        objective = objective_conservative
-
-    else:
-
-        tp_range = np.linspace(0.03,0.06,10)
-
-        sl_base = max(atr_pct*1.5,0.015)
-        sl_range = np.linspace(sl_base,0.04,8)
-
-        objective = objective_aggressive
-
-
-    if strategy == "Conservadora":
-
-        for tp in tp_range:
-
-            pnl = simulate_trade_distribution(
-                mu,sigma,tp,sl,horizon
-            )
-
-            EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
-
-            prob_win = (pnl > 0).mean()
-
-            score = objective(pnl)
-
-            kelly = kelly_continuous(pnl)
-
-            row = {
-                "TP":tp,
-                "SL":sl,
-                "EV":EV,
-                "Sharpe":sharpe,
-                "ProbWin":prob_win,
-                "MaxDD":max_dd,
-                "CVaR":cvar,
-                "Skew":skew,
-                "Kelly":min(kelly,0.25),
-                "Score":score
-            }
-
-            rows.append(row)
-
-            if score > best_score:
-
-                best_score = score
-                best_row = row
-
-
-    else:
-
-        for tp in tp_range:
-
-            for sl in sl_range:
-
-                pnl = simulate_trade_distribution(
-                    mu,sigma,tp,sl,horizon
-                )
-
-                EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
-
-                prob_win = (pnl > 0).mean()
-
-                # FILTROS PROFISSIONAIS
-                penalty = 0
-                
-                if EV < 0:
-                    penalty -= 1
-                if prob_win < 0.4:
-                    penalty -= 0.5
-                if sharpe < 0:
-                    penalty -= 0.5
-                
-                score = objective(pnl) + penalty
-
-                kelly = kelly_continuous(pnl)
-
-                row = {
-                    "TP":tp,
-                    "SL":sl,
-                    "EV":EV,
-                    "Sharpe":sharpe,
-                    "ProbWin":prob_win,
-                    "MaxDD":max_dd,
-                    "CVaR":cvar,
-                    "Skew":skew,
-                    "Kelly":min(kelly,0.25),
-                    "Score":score
-                }
-
-                rows.append(row)
-
-                if score > best_score:
-
-                    best_score = score
-                    best_row = row
-
-
-    df = pd.DataFrame(rows)
-
-    return best_row, df
-
-
-# ============================
-# REGRESSION CHART
-# ============================
-
-def plot_regression(close):
-
-    df = pd.DataFrame({"price":close})
-
-    df["t"] = np.arange(len(df))
-
-    coef = np.polyfit(df["t"],df["price"],1)
-
-    trend = np.poly1d(coef)
-
-    df["trend"] = trend(df["t"])
-
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["price"],
-            mode="lines",
-            name="Preço"
-        )
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["trend"],
-            mode="lines",
-            name="Regressão",
-            line=dict(dash="dash")
-        )
-    )
-
-    return fig
-
-
-# ============================
-# TICKER LOADER
-# ============================
-
-def read_tickers(file):
-
-    content = file.read().decode("utf-8")
-
-    tickers = [
-        t.strip().upper()
-        for t in content.replace(",", "\n").split("\n")
-        if t.strip()
-    ]
-
-    # adiciona .SA automaticamente
-    tickers = [
-        t if ".SA" in t else f"{t}.SA"
-        for t in tickers
-    ]
+    tickers = file.read().decode("utf-8").splitlines()
+    tickers = [t.strip().upper() for t in tickers]
 
     return tickers
 
 
-# ============================
-# ANALYZE TICKER
-# ============================
+# ----------------------------------------------------
 
-def analyze_ticker(ticker, horizon, strategy, filter_stats):
+def download_data(ticker):
 
-    filter_stats["total"] += 1
+    df = yf.download(ticker, period="2y", interval="1d")
 
-    data = load_data(ticker)
+    df["Return"] = df["Close"].pct_change()
 
-    if data is None:
-        filter_stats["data_fail"] += 1
-        return None
+    return df.dropna()
 
-    close = data["Close"]
 
-    log_ret = compute_log_returns(close)
+# ----------------------------------------------------
 
-    mu = estimate_drift(log_ret)
+def calculate_kpis(df):
 
-    sigma = estimate_volatility_ewma(log_ret)
+    mean_return = df["Return"].mean()
 
-    vol_annual = sigma * np.sqrt(252)
+    volatility = df["Return"].std()
 
-    atr = compute_atr(data)
+    sharpe = mean_return/volatility
 
-    atr_pct = atr / close.iloc[-1]
+    momentum = df["Close"].pct_change(30).iloc[-1]
 
-    best, df_all = optimize_tp_sl(
-        mu,
-        sigma,
-        horizon,
-        strategy,
-        atr_pct
-    )
-
-    if best is None:
-        filter_stats["optimization_fail"] += 1
-        return None
-
-    tp = best["TP"]
-    sl = best["SL"]
-
-    pnl = simulate_trade_distribution(
-        mu,
-        sigma,
-        tp,
-        sl,
-        horizon
-    )
-
-    EV, sharpe, max_dd, cvar, skew = risk_metrics(pnl)
-
-    prob_win = (pnl > 0).mean()
-
-    filter_stats["passed"] += 1
+    trend = df["Close"].iloc[-1] / df["Close"].iloc[-50]
 
     return {
-        "Ticker": ticker,
-        "Score": best["Score"],
-        "ProbWin": prob_win,
-        "EV": EV,
-        "Sharpe": sharpe,
-        "TP": tp,
-        "SL": sl,
-        "Kelly": best["Kelly"],
-        "VolAnual": vol_annual,
-        "ATRpct": atr_pct
+        "mean_return":mean_return,
+        "volatility":volatility,
+        "sharpe":sharpe,
+        "momentum":momentum,
+        "trend":trend
     }
 
 
-# ============================
-# STREAMLIT UI
-# ============================
+# ----------------------------------------------------
 
-st.title("Motor Quantitativo de Swing Trade")
+def monte_carlo_prob(df, period, tp, sl, sims):
 
-strategy = st.selectbox(
-    "Estratégia",
-    ["Conservadora","Agressiva"]
-)
+    last_price = df["Close"].iloc[-1]
 
-uploaded_file = st.file_uploader(
-    "Upload arquivo .txt com tickers",
-    type=["txt"]
-)
-tickers = read_tickers(uploaded_file)
+    mu = df["Return"].mean()
+    sigma = df["Return"].std()
 
-st.write("Tickers carregados:", tickers[:10])
+    tp_hits = 0
+    sl_hits = 0
 
-horizon = st.slider("Horizonte (dias)",5,60,15)
+    final_returns = []
 
-if uploaded_file and st.button("Analisar Ativos"):
-    filter_stats = {
-        "total":0,
-        "data_fail":0,
-        "low_history":0,
-        "low_volatility":0,
-        "trend_fail":0,
-        "low_liquidity":0,
-        "optimization_fail":0,
-        "passed":0
-    }
-    
-    tickers = read_tickers(uploaded_file)
+    for s in range(sims):
+
+        price = last_price
+
+        for t in range(period):
+
+            r = np.random.normal(mu,sigma)
+
+            price *= (1+r)
+
+            ret = (price-last_price)/last_price
+
+            if ret >= tp:
+                tp_hits +=1
+                final_returns.append(ret)
+                break
+
+            if ret <= -sl:
+                sl_hits +=1
+                final_returns.append(ret)
+                break
+
+        else:
+
+            ret = (price-last_price)/last_price
+            final_returns.append(ret)
+
+    prob_tp = tp_hits/sims
+    prob_sl = sl_hits/sims
+
+    exp_return = np.mean(final_returns)
+
+    return prob_tp,prob_sl,exp_return,final_returns
+
+
+# ----------------------------------------------------
+
+def score_asset(prob_tp, exp_return, sharpe, momentum):
+
+    score = (
+        prob_tp*0.4
+        + exp_return*2
+        + sharpe*0.2
+        + momentum*0.2
+    )
+
+    return score
+
+
+# ----------------------------------------------------
+
+if uploaded_file:
+
+    tickers = load_tickers(uploaded_file)
 
     results = []
 
-    progress = st.progress(0)
+    raw_data = {}
 
-    for i,ticker in enumerate(tickers):
-        
-        st.write(f"Analisando {ticker}")
+    simulations = {}
 
-        res = analyze_ticker(
-            ticker,
-            horizon,
-            strategy,
-            filter_stats
+    for ticker in tickers:
+
+        try:
+
+            df = download_data(ticker)
+
+            raw_data[ticker] = df
+
+            kpis = calculate_kpis(df)
+
+            prob_tp,prob_sl,exp_return,final_returns = monte_carlo_prob(
+                df,period_days,tp,sl,n_simulations
+            )
+
+            simulations[ticker] = final_returns
+
+            score = score_asset(
+                prob_tp,
+                exp_return,
+                kpis["sharpe"],
+                kpis["momentum"]
+            )
+
+            results.append({
+                "Ticker":ticker,
+                "Score":score,
+                "Prob_TP":prob_tp,
+                "Prob_SL":prob_sl,
+                "Expected_Return":exp_return,
+                **kpis
+            })
+
+        except:
+            pass
+
+    results_df = pd.DataFrame(results)
+
+    results_df = results_df.sort_values("Score",ascending=False)
+
+    top5 = results_df.head(5)
+
+    st.subheader("Top 5 Tickers")
+
+    st.dataframe(top5)
+
+# ----------------------------------------------------
+
+    for ticker in top5["Ticker"]:
+
+        st.header(ticker)
+
+        df = raw_data[ticker]
+
+        kpis = results_df[results_df["Ticker"]==ticker].iloc[0]
+
+        st.write("KPIs")
+
+        st.write(kpis)
+
+# ----------------------------------------------------
+# gráfico preço + regressão
+
+        x = np.arange(len(df)).reshape(-1,1)
+
+        y = df["Close"].values
+
+        model = LinearRegression()
+
+        model.fit(x,y)
+
+        reg = model.predict(x)
+
+        fig = go.Figure()
+
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df["Close"],
+                name="Price"
+            )
         )
 
-        if res:
-            results.append(res)
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=reg,
+                name="Regression"
+            )
+        )
 
-        progress.progress((i+1)/len(tickers))
+        st.plotly_chart(fig)
 
-    df = pd.DataFrame(results)
+# ----------------------------------------------------
+# Monte Carlo Histogram
 
-    df = pd.DataFrame(results)
+        st.subheader("Monte Carlo Distribution")
 
-st.subheader("Diagnóstico do Pipeline")
+        sim_returns = simulations[ticker]
 
-diag = pd.DataFrame(
-    list(filter_stats.items()),
-    columns=["Filtro","Quantidade"]
-)
+        hist = go.Figure()
 
-st.dataframe(diag)
+        hist.add_trace(
+            go.Histogram(
+                x=sim_returns,
+                nbinsx=50
+            )
+        )
 
-# se nenhum ativo retornou métricas
-if df.empty:
-
-    st.error("Nenhum ativo conseguiu gerar métricas.")
-
-    st.write("Tickers analisados:", tickers[:10])
-
-    st.stop()
-
-# garantir que colunas existem
-required_cols = ["Score","Sharpe","EV","ProbWin"]
-
-for col in required_cols:
-    if col not in df.columns:
-        st.error(f"Coluna faltando: {col}")
-        st.write(df.head())
-        st.stop()
-
-# ranking multifator
-df["Rank"] = (
-    df["Score"].rank(ascending=False) +
-    df["Sharpe"].rank(ascending=False) +
-    df["EV"].rank(ascending=False) +
-    df["ProbWin"].rank(ascending=False)
-)
-
-top5 = df.sort_values("Rank").head(5)
-
-st.subheader("Top 5 Ativos para Swing")
-
-st.dataframe(top5)
-
+        st.plotly_chart(hist)
