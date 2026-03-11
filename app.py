@@ -449,43 +449,13 @@ def analyze_ticker(ticker, horizon, strategy, filter_stats):
 
     close = data["Close"]
 
-    if len(close) < 300:
-        filter_stats["low_history"] += 1
-        return None
-
     log_ret = compute_log_returns(close)
 
     mu = estimate_drift(log_ret)
 
     sigma = estimate_volatility_ewma(log_ret)
 
-    # =====================
-    # VOLATILIDADE
-    # =====================
-
     vol_annual = sigma * np.sqrt(252)
-
-    if vol_annual < 0.20:
-        filter_stats["low_volatility"] += 1
-        return None
-
-    # =====================
-    # TENDÊNCIA
-    # =====================
-
-    ma100 = close.rolling(100).mean().iloc[-1]
-
-    if close.iloc[-1] < ma100:
-        filter_stats["trend_fail"] += 1
-        return None
-
-    # =====================
-    # LIQUIDEZ
-    # =====================
-
-    if data["Volume"].mean() < 200000:
-        filter_stats["low_liquidity"] += 1
-        return None
 
     atr = compute_atr(data)
 
@@ -521,15 +491,16 @@ def analyze_ticker(ticker, horizon, strategy, filter_stats):
     filter_stats["passed"] += 1
 
     return {
-        "Ticker":ticker,
-        "Score":best["Score"],
-        "ProbWin":prob_win,
-        "EV":EV,
-        "Sharpe":sharpe,
-        "TP":tp,
-        "SL":sl,
-        "Kelly":best["Kelly"],
-        "VolAnual":vol_annual
+        "Ticker": ticker,
+        "Score": best["Score"],
+        "ProbWin": prob_win,
+        "EV": EV,
+        "Sharpe": sharpe,
+        "TP": tp,
+        "SL": sl,
+        "Kelly": best["Kelly"],
+        "VolAnual": vol_annual,
+        "ATRpct": atr_pct
     }
 
 
