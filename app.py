@@ -1,135 +1,227 @@
-# ================================
-# IMPORTS
-# ================================
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import yfinance as yf
+import plotly.graph_objects as go
+from sklearn.linear_model import LinearRegression
 
-# ================================
-# FUNÇÕES AUXILIARES
-# ================================
+st.title("Market Probability Scanner")
 
-# Função para baixar dados
-def get_data(ticker, period="1y"):
-    """
-    Baixa dados históricos do ativo usando yfinance.
-    Para ativos da B3, adiciona '.SA'
-    """
-    ticker = ticker.upper() + ".SA"
-    data = yf.download(ticker, period=period)
-    return data
+uploaded_file = st.file_uploader("Upload TXT com tickers", type="txt")
 
-# Retornos
-def calculate_returns(df):
-    df['Return'] = df['Adj Close'].pct_change()
-    return df
+period_days = st.number_input("Período de previsão (dias)", value=10)
 
-# Volatilidade anualizada
-def calculate_volatility(df):
-    return df['Return'].std() * np.sqrt(252)
+tp = st.number_input("Take Profit (%)", value=5.0)/100
+sl = st.number_input("Stop Loss (%)", value=3.0)/100
 
-# RSI
-def calculate_rsi(df, period=14):
-    delta = df['Adj Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
-    
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+n_simulations = st.number_input("Simulações Monte Carlo", value=500)
 
-# Drawdown
-def calculate_drawdown(df):
-    cum = (1 + df['Return']).cumprod()
-    peak = cum.cummax()
-    drawdown = (cum - peak) / peak
-    return drawdown.min()
+# ----------------------------------------------------
 
-# Sharpe Ratio simplificado
-def calculate_sharpe(df):
-    return (df['Return'].mean() / df['Return'].std()) * np.sqrt(252)
+def load_tickers(file):
 
-# ================================
-# INTERFACE STREAMLIT
-# ================================
+    tickers = file.read().decode("utf-8").splitlines()
+    tickers = [t.strip().upper() for t in tickers]
 
-st.set_page_config(page_title="Swing Trade Analyzer", layout="wide")
+    return tickers
 
-st.title("📈 Analisador de Swing Trade - B3")
 
-ticker = st.text_input("Digite o ticker (ex: PETR4, VALE3):", "PETR4")
-period = st.selectbox("Período:", ["6mo", "1y", "2y", "5y"])
+# ----------------------------------------------------
 
-if st.button("Analisar"):
+def download_data(ticker):
 
-    df = get_data(ticker, period)
+    df = yf.download(ticker, period="2y", interval="1d")
 
-    if df.empty:
-        st.error("Erro ao buscar dados.")
-    else:
-        # ================================
-        # CÁLCULOS
-        # ================================
-        df = calculate_returns(df)
+    df["Return"] = df["Close"].pct_change()
 
-        df['MA9'] = df['Adj Close'].rolling(9).mean()
-        df['MA21'] = df['Adj Close'].rolling(21).mean()
-        df['RSI'] = calculate_rsi(df)
+    return df.dropna()
 
-        volatility = calculate_volatility(df)
-        sharpe = calculate_sharpe(df)
-        drawdown = calculate_drawdown(df)
 
-        current_price = df['Adj Close'].iloc[-1]
+# ----------------------------------------------------
 
-        # ================================
-        # KPIs
-        # ================================
-        st.subheader("📊 KPIs do Ativo")
+def calculate_kpis(df):
 
-        col1, col2, col3 = st.columns(3)
+    mean_return = df["Return"].mean()
 
-        col1.metric("Preço Atual", f"R$ {current_price:.2f}")
-        col1.metric("Volatilidade (anual)", f"{volatility:.2%}")
+    volatility = df["Return"].std()
 
-        col2.metric("Sharpe Ratio", f"{sharpe:.2f}")
-        col2.metric("Drawdown Máx", f"{drawdown:.2%}")
+    sharpe = mean_return/volatility
 
-        col3.metric("RSI Atual", f"{df['RSI'].iloc[-1]:.2f}")
-        col3.metric("Retorno Médio Diário", f"{df['Return'].mean():.4%}")
+    momentum = df["Close"].pct_change(30).iloc[-1]
 
-        # ================================
-        # GRÁFICO
-        # ================================
-        st.subheader("📉 Gráfico de Preço")
+    trend = df["Close"].iloc[-1] / df["Close"].iloc[-50]
 
-        fig, ax = plt.subplots(figsize=(12, 6))
+    return {
+        "mean_return":mean_return,
+        "volatility":volatility,
+        "sharpe":sharpe,
+        "momentum":momentum,
+        "trend":trend
+    }
 
-        ax.plot(df.index, df['Adj Close'], label='Preço')
-        ax.plot(df.index, df['MA9'], label='MM9')
-        ax.plot(df.index, df['MA21'], label='MM21')
 
-        ax.set_title(f"{ticker.upper()} - Preço e Médias Móveis")
-        ax.legend()
-        ax.grid()
+# ----------------------------------------------------
 
-        st.pyplot(fig)
+def monte_carlo_prob(df, period, tp, sl, sims):
 
-        # ================================
-        # INTERPRETAÇÃO SIMPLES
-        # ================================
-        st.subheader("🧠 Leitura Rápida")
+    last_price = df["Close"].iloc[-1]
 
-        if df['MA9'].iloc[-1] > df['MA21'].iloc[-1]:
-            st.success("Tendência de curto prazo: Alta 📈")
+    mu = df["Return"].mean()
+    sigma = df["Return"].std()
+
+    tp_hits = 0
+    sl_hits = 0
+
+    final_returns = []
+
+    for s in range(sims):
+
+        price = last_price
+
+        for t in range(period):
+
+            r = np.random.normal(mu,sigma)
+
+            price *= (1+r)
+
+            ret = (price-last_price)/last_price
+
+            if ret >= tp:
+                tp_hits +=1
+                final_returns.append(ret)
+                break
+
+            if ret <= -sl:
+                sl_hits +=1
+                final_returns.append(ret)
+                break
+
         else:
-            st.warning("Tendência de curto prazo: Baixa 📉")
 
-        if df['RSI'].iloc[-1] > 70:
-            st.warning("RSI indica sobrecompra ⚠️")
-        elif df['RSI'].iloc[-1] < 30:
-            st.success("RSI indica sobrevenda 🔥")
-        else:
-            st.info("RSI neutro")
+            ret = (price-last_price)/last_price
+            final_returns.append(ret)
+
+    prob_tp = tp_hits/sims
+    prob_sl = sl_hits/sims
+
+    exp_return = np.mean(final_returns)
+
+    return prob_tp,prob_sl,exp_return,final_returns
+
+
+# ----------------------------------------------------
+
+def score_asset(prob_tp, exp_return, sharpe, momentum):
+
+    score = (
+        prob_tp*0.4
+        + exp_return*2
+        + sharpe*0.2
+        + momentum*0.2
+    )
+
+    return score
+
+
+# ----------------------------------------------------
+
+if uploaded_file:
+    if st.button("Analisar"):
+        tickers = load_tickers(uploaded_file)
+        
+        results = []
+        
+        raw_data = {}
+        
+        simulations = {}
+        
+        for ticker in tickers:
+            try:
+                df = download_data(ticker)
+                raw_data[ticker] = df
+                kpis = calculate_kpis(df)
+                prob_tp,prob_sl,exp_return,final_returns = monte_carlo_prob(
+                    df,period_days,tp,sl,n_simulations
+                )
+                simulations[ticker] = final_returns
+                score = score_asset(
+                    prob_tp,
+                    exp_return,
+                    kpis["sharpe"],
+                    kpis["momentum"]
+                )
+                results.append({
+                    "Ticker":ticker,
+                    "Score":score,
+                    "Prob_TP":prob_tp,
+                    "Prob_SL":prob_sl,
+                    "Expected_Return":exp_return,
+                    **kpis
+                })
+            except:
+                pass
+        results_df = pd.DataFrame(results)
+        if results_df.empty:
+            st.error("Nenhum ticker foi processado. Verifique o arquivo TXT ou conexão com dados.")
+            st.stop()
+        if "Score" not in results_df.columns:
+            st.error("A coluna Score não foi criada. Verifique o cálculo do score.")
+            st.write(results_df)
+            st.stop()
+        
+        results_df = results_df.sort_values("Score", ascending=False)
+        top5 = results_df.head(5)
+        st.subheader("Top 5 Tickers")
+        st.dataframe(top5)
+
+# ----------------------------------------------------
+        for ticker in top5["Ticker"]:
+            st.header(ticker)
+            
+            df = raw_data[ticker]
+            
+            kpis = results_df[results_df["Ticker"]==ticker].iloc[0]
+            st.write("KPIs")
+            st.write(kpis)
+            
+            x = np.arange(len(df)).reshape(-1,1)
+            y = df["Close"].values
+            
+            model = LinearRegression()
+            model.fit(x,y)
+            
+            reg = model.predict(x)
+            
+            fig = go.Figure()
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=df["Close"],
+                    name="Price"
+                )
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df.index,
+                    y=reg,
+                    name="Regression"
+                )
+            )
+            
+            st.plotly_chart(fig)
+            
+            st.subheader("Monte Carlo Distribution")
+            
+            sim_returns = simulations[ticker]
+            
+            hist = go.Figure()
+            
+            hist.add_trace(
+                go.Histogram(
+                    x=sim_returns,
+                    nbinsx=50
+                )
+            )
+            st.plotly_chart(hist)
