@@ -3,11 +3,11 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
 
 from scipy import stats
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LinearRegression
+from sklearn.metrics import classification_report
+
 from arch import arch_model
 
 # =========================
@@ -15,23 +15,14 @@ from arch import arch_model
 # =========================
 
 st.set_page_config(layout="wide")
-st.title("📊 Quant Trading Pipeline PRO + Scanner de Oportunidades")
-
-# =========================
-# PARÂMETROS
-# =========================
-
-TP = 0.03      # 3% take profit
-SL = -0.02     # -2% stop loss
-N_DIAS = 10    # horizonte
-N_SIM = 300    # simulações monte carlo
+st.title("📊 Quant Trading Pipeline Completo")
 
 # =========================
 # INPUT
 # =========================
 
 tickers_input = st.text_input("Tickers (ex: PETR4.SA, VALE3.SA)")
-rodar = st.button("Executar")
+rodar = st.button("Executar Pipeline")
 
 # =========================
 # FUNÇÕES
@@ -51,12 +42,13 @@ def features(df):
     df["volatility_10"] = df["log_return"].rolling(10).std()
     df["momentum_5"] = df["Close"] - df["Close"].shift(5)
     df["lag_1"] = df["log_return"].shift(1)
-    df["lag_2"] = df["log_return"].shift(2)
+    df["volume_return"] = df["Volume"] * df["log_return"]
     return df
 
-def escolher_dist(data):
+def escolher_distribuicao(data):
     s = stats.skew(data)
     k = stats.kurtosis(data, fisher=False)
+
     if k < 3.5:
         return "normal"
     elif abs(s) < 0.2:
@@ -65,92 +57,65 @@ def escolher_dist(data):
         return "skewt"
 
 def ajustar_garch(data, dist):
-    model = arch_model(data*100, vol="Garch", p=1, q=1, dist=dist)
+    if dist == "normal":
+        d = "normal"
+    elif dist == "t":
+        d = "t"
+    else:
+        d = "skewt"
+
+    model = arch_model(data*100, vol="Garch", p=1, q=1, dist=d)
     res = model.fit(disp="off")
+
     return res
 
-def walk_forward_ml(df, features_cols):
+def monte_carlo(mu, sigma, n=100, T=50):
+    paths = []
 
-    df["target"] = (df["log_return"].shift(-1) > 0).astype(int)
-    df = df.dropna()
-
-    preds = []
-
-    for i in range(100, len(df)-1):
-        train = df.iloc[:i]
-        test = df.iloc[i:i+1]
-
-        model = RandomForestClassifier(n_estimators=100)
-        model.fit(train[features_cols], train["target"])
-
-        p = model.predict_proba(test[features_cols])[:,1][0]
-        preds.append(p)
-
-    return np.array(preds), df.iloc[100:len(df)-1]
-
-def calcular_score(proba, vol):
-    vol = max(vol, 1e-6)
-    return proba / vol
-
-def monte_carlo_garch_tp_sl(res):
-
-    params = res.params
-    omega = params['omega']
-    alpha = params['alpha[1]']
-    beta = params['beta[1]']
-
-    tp_hit = 0
-    sl_hit = 0
-
-    for _ in range(N_SIM):
-        sigma2 = omega / (1 - alpha - beta)
+    for _ in range(n):
         S = 1
+        serie = []
 
-        for _ in range(N_DIAS):
+        for _ in range(T):
             z = np.random.normal()
-            sigma2 = omega + alpha*(z**2) + beta*sigma2
-            sigma = np.sqrt(sigma2)
+            S *= np.exp((mu - 0.5*sigma**2) + sigma*z)
+            serie.append(S)
 
-            S *= np.exp(sigma*z)
+        paths.append(serie)
 
-            if S - 1 >= TP:
-                tp_hit += 1
-                break
+    return np.array(paths)
 
-            if S - 1 <= SL:
-                sl_hit += 1
-                break
+def estrategia_ml(df):
+    df["target"] = (df["log_return"].shift(-1) > 0).astype(int)
 
-    return tp_hit / N_SIM, sl_hit / N_SIM
+    features_cols = ["log_return","lag_1","momentum_5","volatility_10"]
 
-def plot_regressao(df, nome):
+    df_model = df[features_cols + ["target"]].dropna()
 
-    y = df["Close"].values.reshape(-1,1)
-    X = np.arange(len(y)).reshape(-1,1)
+    split = int(len(df_model)*0.8)
 
-    model = LinearRegression()
-    model.fit(X, y)
-    trend = model.predict(X)
+    train = df_model.iloc[:split]
+    test = df_model.iloc[split:]
 
-    plt.figure(figsize=(10,4))
-    plt.plot(y, label="Preço")
-    plt.plot(trend, label="Regressão", linestyle="--")
-    plt.title(nome)
-    plt.legend()
-    st.pyplot(plt)
+    model = RandomForestClassifier(n_estimators=100)
+    model.fit(train[features_cols], train["target"])
 
-def backtest(proba, df):
+    proba = model.predict_proba(test[features_cols])[:,1]
 
-    returns = df["log_return"].values
-    positions = 2*proba - 1
+    return test, proba
 
-    strat = positions * returns
-    strat = pd.Series(strat)
+def backtest(test, proba, threshold=0.55):
+    pos = np.zeros(len(proba))
+    pos[proba > threshold] = 1
+    pos[proba < (1-threshold)] = -1
+
+    returns = test["log_return"].shift(-1)
+    strat = pos * returns
+    strat = strat.dropna()
 
     sharpe = strat.mean()/strat.std()*np.sqrt(252)
-    cum = (1+strat).cumprod()
 
-    return sharpe, cum
+    return strat, sharpe
 
 # =========================
 # EXECUÇÃO
@@ -162,73 +127,76 @@ if rodar:
 
     dados = baixar_dados(tickers)
 
-    resultados = []
-
     for nome, df in dados.items():
+
+        st.header(f"📌 {nome}")
 
         df = features(df)
 
         data = df["log_return"].dropna()
 
-        dist = escolher_dist(data)
-        garch = ajustar_garch(data, dist)
+        # -----------------
+        # Distribuição
+        # -----------------
 
+        dist = escolher_distribuicao(data)
+        st.write("Distribuição escolhida:", dist)
+
+        # -----------------
+        # GARCH
+        # -----------------
+
+        garch = ajustar_garch(data, dist)
         sigma = garch.conditional_volatility / 100
+
         df["cond_vol"] = sigma
 
-        features_cols = ["log_return","lag_1","lag_2","momentum_5","volatility_10","cond_vol"]
+        # -----------------
+        # ML
+        # -----------------
 
-        proba, df_ml = walk_forward_ml(df, features_cols)
+        test, proba = estrategia_ml(df)
 
-        if len(proba) == 0:
-            continue
+        strat, sharpe = backtest(test, proba)
 
-        score = calcular_score(proba[-1], df_ml["cond_vol"].values[-1])
+        st.write("Sharpe Ratio:", sharpe)
 
-        resultados.append({
-            "ticker": nome,
-            "score": score,
-            "df": df,
-            "garch": garch,
-            "proba": proba,
-            "df_ml": df_ml
-        })
+        # -----------------
+        # Monte Carlo
+        # -----------------
 
-    # =========================
-    # TOP 5
-    # =========================
+        mu = data.mean()
+        sigma_val = data.std()
 
-    top5 = sorted(resultados, key=lambda x: x["score"], reverse=True)[:5]
-
-    st.header("🏆 Top 5 ativos por score")
-
-    for r in top5:
-        st.write(f"{r['ticker']} | Score: {r['score']:.4f}")
-
-    # =========================
-    # DETALHES DOS TOP 5
-    # =========================
-
-    for r in top5:
-
-        st.subheader(f"📊 {r['ticker']}")
-
-        df = r["df"].dropna()
-
-        # Plot regressão
-        plot_regressao(df, r["ticker"])
-
-        # Probabilidades TP/SL
-        p_tp, p_sl = monte_carlo_garch_tp_sl(r["garch"])
-
-        st.write(f"Probabilidade TP ({TP*100:.1f}%): {p_tp:.2%}")
-        st.write(f"Probabilidade SL ({SL*100:.1f}%): {p_sl:.2%}")
-
-        # Backtest
-        sharpe, cum = backtest(r["proba"], r["df_ml"])
-
-        st.write("Sharpe:", round(sharpe, 2))
+        paths = monte_carlo(mu, sigma_val)
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(y=cum, name="Estratégia"))
+        for i in range(10):
+            fig.add_trace(go.Scatter(y=paths[i], mode='lines'))
+
         st.plotly_chart(fig)
+
+        # -----------------
+        # Probabilidades de retorno
+        # -----------------
+
+        targets = [0.01, 0.02, 0.05]  # 1%, 2%, 5%
+
+        probs = {}
+
+        for t in targets:
+            probs[f"{int(t*100)}%"] = np.mean(data > t)
+
+        st.write("Probabilidades históricas de atingir retorno diário:")
+        st.write(probs)
+
+        # -----------------
+        # Curva da estratégia
+        # -----------------
+
+        cum = (1+strat).cumprod()
+
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(y=cum, mode='lines', name="Estratégia"))
+
+        st.plotly_chart(fig2)
