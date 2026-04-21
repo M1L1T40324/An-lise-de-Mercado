@@ -30,19 +30,38 @@ rodar = st.button("Executar Pipeline")
 
 def baixar_dados(tickers):
     dados = {}
+
     for t in tickers:
         df = yf.download(t, progress=False)
+
         if not df.empty:
+            # 🔥 CORREÇÃO AQUI
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
             df["Ticker"] = t
             dados[t] = df
+
     return dados
 
 def features(df):
+
+    # garantir colunas simples
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
     df["volatility_10"] = df["log_return"].rolling(10).std()
     df["momentum_5"] = df["Close"] - df["Close"].shift(5)
     df["lag_1"] = df["log_return"].shift(1)
-    df["volume_return"] = df["Volume"] * df["log_return"]
+
+    # 🔥 garantir Series
+    vol = df["Volume"]
+    if isinstance(vol, pd.DataFrame):
+        vol = vol.iloc[:, 0]
+
+    df["volume_return"] = vol * df["log_return"]
+
     return df
 
 def escolher_distribuicao(data):
