@@ -21,7 +21,7 @@ st.title("📊 Quant Trading Pipeline (Corrigido e Profissional)")
 TP = 0.03
 SL = -0.02
 N_DIAS = 10
-N_SIM = 300
+N_SIM = 10000
 COST = 0.001
 
 # =========================
