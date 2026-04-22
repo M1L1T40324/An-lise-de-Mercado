@@ -480,12 +480,6 @@ if garch_params is None:
 
 omega, alpha, beta = garch_params
 
-"mu": mu_ml,
-"sigma": returns.std(),
-"omega": omega,
-"alpha": alpha,
-"beta": beta,
-"returns": returns.values,
             progress.progress((i + 1) / len(tickers))
 
     portfolio_df = pd.DataFrame(portfolio_rows)
