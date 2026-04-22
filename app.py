@@ -219,12 +219,10 @@ if rodar:
 
         expectativa = p_tp*TP + p_sl*SL
         st.write("Expectativa:", round(expectativa,4))
-
-st.subheader("🎯 Probabilidades do Trade")
-
-st.write(f"TP: {p_tp:.2%}")
-st.write(f"SL: {p_sl:.2%}")
-st.write(f"Nenhum: {p_none:.2%}")
+        st.subheader("🎯 Probabilidades do Trade")
+        st.write(f"TP: {p_tp:.2%}")
+        st.write(f"SL: {p_sl:.2%}")
+        st.write(f"Nenhum: {p_none:.2%}")
 
         # -----------------
         # DECISÃO
