@@ -480,7 +480,6 @@ if garch_params is None:
 
 omega, alpha, beta = garch_params
 
-            progress.progress((i + 1) / len(tickers))
 
     portfolio_df = pd.DataFrame(portfolio_rows)
 
