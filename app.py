@@ -1,231 +1,546 @@
+# Streamlit app: GBM features + XGBoost TP/SL scanner
+
 import streamlit as st
-import pandas as pd
-import numpy as np
 import yfinance as yf
-import plotly.graph_objects as go
+import numpy as np
+import pandas as pd
+from xgboost import XGBClassifier
+from sklearn.metrics import roc_auc_score
+try:
+    from arch import arch_model
+    ARCH_OK = True
+except:
+    ARCH_OK = False
+from statsmodels.tsa.ar_model import AutoReg
+from scipy.stats import norm
 
-from sklearn.ensemble import RandomForestRegressor
-from arch import arch_model
+def compute_returns(close):
+    return np.log(close / close.shift(1)).dropna()
 
-# =========================
-# CONFIG
-# =========================
+def prob_tp_sl_deterministic(mu, sigma, tp, sl, horizon):
+    """
+    Probabilidade determinística de atingir TP ou SL
+    assumindo retornos normais agregados no horizonte.
+    """
+    mu_h = mu * horizon
+    sigma_h = sigma * np.sqrt(horizon)
 
-st.set_page_config(layout="wide")
-st.title("📊 Quant Trading Pipeline (Corrigido e Profissional)")
+    if sigma_h <= 0:
+        return 0.0, 0.0
 
-# =========================
-# PARÂMETROS
-# =========================
+    z_tp = (tp - mu_h) / sigma_h
+    z_sl = (-sl - mu_h) / sigma_h
 
-TP = 0.2
-SL = -0.1
-N_DIAS = 20
-N_SIM = 10000
-COST = 0.001
+    p_tp = 1 - norm.cdf(z_tp)
+    p_sl = norm.cdf(z_sl)
 
-# =========================
-# INPUT
-# =========================
+    total = p_tp + p_sl
+    if total == 0:
+        return 0.0, 0.0
 
-tickers_input = st.text_input("Tickers (ex: PETR4.SA, VALE3.SA)")
-rodar = st.button("Executar")
-
-# =========================
-# FUNÇÕES
-# =========================
-
-def baixar_dados(tickers):
-    dados = {}
-    for t in tickers:
-        df = yf.download(t, period="2y", progress=False)
-
-        if not df.empty:
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            dados[t] = df
-
-    return dados
+    return p_tp / total, p_sl / total
 
 
-def features(df):
-    df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
-    df["vol"] = df["log_return"].rolling(10).std()
-    df["momentum"] = df["Close"] - df["Close"].shift(5)
-    df["lag1"] = df["log_return"].shift(1)
-    df["lag2"] = df["log_return"].shift(2)
-    return df
+def ewma_volatility(returns, lambda_=0.94):
+    var = returns.ewm(alpha=1 - lambda_).var()
+    return np.sqrt(var)
+    
+def ar_garch_features_safe(close):
+    close = close.astype(float)
+    log_ret = np.log(close / close.shift(1)).dropna()
 
+    # AR(1)
+    ar = AutoReg(log_ret, lags=1, old_names=False).fit()
+    mu_hat = ar.fittedvalues
 
-def ajustar_garch(data):
-    model = arch_model(data*100, vol="Garch", p=1, q=1)
-    res = model.fit(disp="off")
-    return res
+    if ARCH_OK:
+        garch = arch_model(
+            log_ret * 100,
+            mean="Zero",
+            vol="GARCH",
+            p=1, q=1,
+            dist="normal"
+        ).fit(disp="off")
+        sigma_hat = garch.conditional_volatility / 100
+    else:
+        sigma_hat = ewma_volatility(log_ret)
 
+    df = pd.DataFrame(index=log_ret.index)
+    df["mu_ar"] = mu_hat
+    df["sigma"] = sigma_hat
 
-def monte_carlo_garch(res, mu_ml=0):
+    return df.dropna()
 
-    params = res.params
-    omega = params['omega']
-    alpha = params['alpha[1]']
-    beta = params['beta[1]']
-
+def prob_tp_sl(mu, sigma, tp, sl, horizon, n_sim=3000):
     tp_hit = 0
     sl_hit = 0
-    none_hit = 0
 
-    dt = 1/252
+    for _ in range(n_sim):
+        path = np.cumsum(
+            mu + sigma * np.random.randn(horizon)
+        )
 
-    for _ in range(N_SIM):
-
-        sigma2 = omega / (1 - alpha - beta)
-        S = 1
-        hit = False
-
-        for _ in range(N_DIAS):
-
-            z = np.random.normal()
-
-            sigma2 = omega + alpha*(z**2) + beta*sigma2
-            sigma = np.sqrt(sigma2) / 100  # 🔥 CORREÇÃO
-
-            S *= np.exp((mu_ml - 0.5*sigma**2)*dt + sigma*np.sqrt(dt)*z)
-
-            if S - 1 >= TP:
-                tp_hit += 1
-                hit = True
-                break
-
-            if S - 1 <= SL:
-                sl_hit += 1
-                hit = True
-                break
-
-        if not hit:
-            none_hit += 1
-
-    total = N_SIM
-
-    return tp_hit/total, sl_hit/total, none_hit/total
-def modelo_ml(df):
-
-    df["target"] = df["log_return"].shift(-1)
-
-    cols = ["log_return","lag1","lag2","momentum","vol"]
-
-    df = df[cols + ["target"]].dropna()
-
-    split = int(len(df)*0.8)
-
-    train = df.iloc[:split]
-    test = df.iloc[split:]
-
-    model = RandomForestRegressor(n_estimators=100)
-    model.fit(train[cols], train["target"])
-
-    pred = model.predict(test[cols])
-
-    return test.reset_index(drop=True), pred
-
-
-def backtest(test, pred):
-
-    returns = test["target"].values
-
-    # posição proporcional ao retorno esperado
-    pos = pred / (np.std(pred) + 1e-6)
-
-    strat = pos * returns
-
-    # custo
-    trades = np.abs(np.diff(pos))
-    strat[1:] -= trades * COST
-
-    strat = pd.Series(strat).fillna(0)
-
-    sharpe = strat.mean()/strat.std()*np.sqrt(252)
-
-    cum = (1+strat).cumprod()
-    cum = cum / cum.iloc[0]
-
-    return strat, sharpe, cum
-
-
-# =========================
-# EXECUÇÃO
-# =========================
-
-if rodar:
-
-    tickers = [t.strip().upper() for t in tickers_input.split(",")]
-    dados = baixar_dados(tickers)
-
-    for nome, df in dados.items():
-
-        st.header(f"📌 {nome}")
-
-        df = features(df)
-        data = df["log_return"].dropna()
-
-        if len(data) < 200:
-            st.warning("Poucos dados")
-            continue
-
-        # -----------------
-        # GARCH
-        # -----------------
-
-        try:
-            garch = ajustar_garch(data)
-        except:
-            st.warning("GARCH falhou")
-            continue
-
-        # -----------------
-        # ML
-        # -----------------
-
-        test, pred = modelo_ml(df)
-
-        if len(pred) == 0:
-            st.warning("ML falhou")
-            continue
-
-        # -----------------
-        # BACKTEST
-        # -----------------
-
-        strat, sharpe, cum = backtest(test, pred)
-
-        st.write("Sharpe:", round(sharpe, 3))
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(y=cum, name="Estratégia"))
-        fig.update_layout(title="Equity Curve")
-        st.plotly_chart(fig)
-
-        # -----------------
-        # TP vs SL
-        # -----------------
-
-        p_tp, p_sl, p_none = monte_carlo_garch(garch, mu_ml=pred[-1])
-        st.subheader("🎯 Probabilidade de Trade")
-
-        st.write(f"TP ({TP*100:.1f}%): {p_tp:.2%}")
-        st.write(f"SL ({SL*100:.1f}%): {p_sl:.2%}")
-
-        expectativa = p_tp*TP + p_sl*SL
-        st.write("Expectativa:", round(expectativa,4))
-        st.subheader("🎯 Probabilidades do Trade")
-        st.write(f"TP: {p_tp:.2%}")
-        st.write(f"SL: {p_sl:.2%}")
-        st.write(f"Nenhum: {p_none:.2%}")
-
-        # -----------------
-        # DECISÃO
-        # -----------------
-
-        if expectativa > 0:
-            st.success("Trade com edge positivo")
+        if np.any(path >= tp):
+            tp_time = np.argmax(path >= tp)
         else:
-            st.error("Sem vantagem estatística")
+            tp_time = np.inf
+
+        if np.any(path <= -sl):
+            sl_time = np.argmax(path <= -sl)
+        else:
+            sl_time = np.inf
+
+        if tp_time < sl_time:
+            tp_hit += 1
+        elif sl_time < tp_time:
+            sl_hit += 1
+
+    total = tp_hit + sl_hit
+    if total == 0:
+        return 0.0, 0.0
+
+    return tp_hit / total, sl_hit / total
+
+
+def levy_tail_penalty(tp, sigma, alpha=3.0, jump_intensity=0.02):
+    """
+    Penaliza TP agressivo considerando cauda pesada
+    """
+    tail_prob = (tp / sigma) ** (-alpha)
+    crash_risk = jump_intensity * tail_prob
+
+    penalty = max(0, 1 - crash_risk)
+    return penalty
+
+def compute_ev(tp, sl, p_tp, p_sl):
+    return p_tp * tp - p_sl * sl
+
+def kelly_fraction(tp, sl, p):
+    b = tp / sl
+    return max((p * (b + 1) - 1) / b, 0)
+
+
+# =========================
+# 1. GBM FEATURE ENGINEERING
+# =========================
+
+def gbm_features(close):
+    close = close.astype(float)
+    log_ret = np.log(close / close.shift(1))
+
+    mu = log_ret.rolling(252).mean() * 252
+    sigma = log_ret.rolling(252).std() * np.sqrt(252)
+
+    df = pd.DataFrame(index=close.index)
+    df["mu_gbm"] = mu
+    df["sigma_gbm"] = sigma
+    df["vol_5d"] = log_ret.rolling(5).std()
+    df["vol_10d"] = log_ret.rolling(10).std()
+
+    return df.dropna()
+
+
+# =========================
+# 2. TP / SL SIMULATION
+# =========================
+
+def label_tp_sl(df, tp, sl, horizon):
+    y = []
+
+    for i in range(len(df) - horizon):
+        entry = float(df["Close"].iloc[i])
+        future = df.iloc[i + 1 : i + horizon + 1]
+
+        tp_price = entry * (1 + tp)
+        sl_price = entry * (1 - sl)
+
+        hit_tp = (future["High"] >= tp_price).any()
+        hit_sl = (future["Low"] <= sl_price).any()
+
+        if hit_tp and not hit_sl:
+            y.append(1)
+        elif hit_sl and not hit_tp:
+            y.append(0)
+        else:
+            y.append(np.nan)
+
+    return pd.Series(y, index=df.index[:len(y)])
+
+# =========================
+# 3. TRAIN XGBOOST MODEL
+# =========================
+
+def train_model(X, y, min_samples=150):
+    data = pd.concat([X, y.rename("target")], axis=1).dropna()
+
+    if len(data) < min_samples:
+        raise ValueError(f"Amostras insuficientes: {len(data)}")
+
+    split = int(len(data) * 0.7)
+
+    X_train, y_train = data.iloc[:split][X.columns], data.iloc[:split]["target"]
+    X_test, y_test = data.iloc[split:][X.columns], data.iloc[split:]["target"]
+
+    model = XGBClassifier(
+        n_estimators=250,
+        max_depth=4,
+        learning_rate=0.04,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        eval_metric="auc",
+        random_state=42
+    )
+
+    model.fit(X_train, y_train)
+    auc = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
+
+    return model, auc
+
+
+# =========================
+# 4. TP/SL GRID SEARCH (COM RISCO)
+# =========================
+
+def simulate_strategy(mu, sigma, tp, sl, horizon, n_sim=10000):
+    pnl = []
+
+    for _ in range(n_sim):
+        path = np.cumsum(mu + sigma * np.random.randn(horizon))
+
+        if np.any(path >= tp):
+            pnl.append(tp)
+        elif np.any(path <= -sl):
+            pnl.append(-sl)
+        else:
+            pnl.append(path[-1])
+
+    return np.array(pnl)
+
+
+def risk_metrics(pnl, alpha=0.95):
+    cum = np.cumsum(pnl)
+    dd = cum - np.maximum.accumulate(cum)
+
+    return {
+        "Max_Drawdown": dd.min(),
+        "CVaR": pnl[pnl <= np.quantile(pnl, 1 - alpha)].mean(),
+        "Prob_Ruina": np.mean(pnl < dd.min())
+    }
+
+def evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon):
+    results = []
+
+    mu = feats["mu_ar"].iloc[-1]
+    sigma = feats["sigma"].iloc[-1]
+
+    for tp in tp_list:
+        for sl in sl_list:
+
+            # --- PROBABILIDADE DETERMINÍSTICA ---
+            p_tp, p_sl = prob_tp_sl_deterministic(
+                mu,
+                sigma,
+                tp,
+                sl,
+                horizon
+            )
+
+            if p_tp <= 0 or p_sl <= 0:
+                continue
+
+            EV = compute_ev(tp, sl, p_tp, p_sl)
+
+            # Penalização por SL irrealista
+            sl_penalty = min(
+                1.0,
+                sl / (2 * sigma * np.sqrt(horizon))
+            )
+            EV *= sl_penalty
+
+            # Penalização de cauda (Lévy)
+            penalty = levy_tail_penalty(
+                tp,
+                sigma * np.sqrt(horizon),
+                alpha=2.5,
+                jump_intensity=0.05
+            )
+
+            EV_adj = EV * penalty
+
+            # Kelly fracionado e ajustado por horizonte
+            kelly_raw = kelly_fraction(tp, sl, p_tp)
+            kelly = min(kelly_raw / np.sqrt(horizon), 0.15)
+
+            results.append({
+                "TP": tp,
+                "SL": sl,
+                "Prob_TP": p_tp,
+                "Prob_SL": p_sl,
+                "EV": EV,
+                "EV_adj": EV_adj,
+                "Kelly_frac": kelly,
+                "Levy_penalty": penalty
+            })
+
+    return pd.DataFrame(results)
+
+
+
+# =========================
+# 5. STREAMLIT UI
+# =========================
+
+st.title("GBM + XGBoost TP/SL Scanner (Risk-Aware)")
+
+symbol = st.text_input("Ticker", "PETR4.SA")
+horizon = st.slider("Horizonte (dias)", 5, 20, 10)
+
+if st.button("Rodar modelo"):
+    data = yf.download(symbol, period="5y", auto_adjust=True)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+
+    feats = ar_garch_features_safe(data["Close"])
+    df = pd.concat([data, feats], axis=1).dropna()
+
+    tp_list = np.linspace(0.02, 0.10, 6)
+    sl_list = np.linspace(0.01, 0.06, 6)
+
+    res = evaluate_tp_sl_ar_garch(df, feats, tp_list, sl_list, horizon)
+
+    if res.empty:
+        st.warning("Nenhuma combinação viável.")
+        st.stop()
+
+    best = res.sort_values("EV_adj", ascending=False).iloc[0]
+
+    b = best.TP / best.SL
+    p = best.Prob_TP
+    kelly_raw = (p * (b + 1) - 1) / b
+    kelly = np.clip(kelly_raw, 0, 0.25)
+
+    st.dataframe(res)
+    st.success(
+        f"Melhor combo → TP {best.TP:.2%}, SL {best.SL:.2%}, "
+        f"EV ajustado {best.EV_adj:.2%}, Kelly {best.Kelly_frac:.2%}"
+    )
+
+st.sidebar.markdown("### 📥 Entrada de tickers")
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload CSV ou TXT com tickers",
+    type=["csv", "txt"]
+)
+
+raw_tickers = ""
+
+if uploaded_file is not None:
+    if uploaded_file.name.endswith(".csv"):
+        df_t = pd.read_csv(uploaded_file, header=None)
+        raw_tickers = ",".join(df_t.iloc[:, 0].astype(str))
+    else:
+        raw_tickers = uploaded_file.read().decode("utf-8")
+
+st.sidebar.subheader("📦 Scan multi-ticker (portfólio ótimo)")
+
+if st.sidebar.button("Rodar scan e montar portfólio"):
+
+    raw_tickers = st.text_area(
+        "Tickers (vírgula ou quebra de linha)",
+        raw_tickers,
+        height=200
+    )
+
+    tickers = [
+        t.strip().upper()
+        for t in raw_tickers.replace("\n", ",").split(",")
+        if t.strip() != ""
+    ]
+
+    # =============================
+    # FASE 1 — SCAN DETERMINÍSTICO
+    # =============================
+    portfolio_rows = []
+    returns_dict = {}
+    
+    progress = st.progress(0)
+    status = st.empty()
+
+    with st.spinner("Fase 1: Scan determinístico..."):
+        for i, sym in enumerate(tickers):
+            try:
+                status.text(f"[Fase 1] {sym} ({i+1}/{len(tickers)})")
+
+                data = yf.download(sym, period="5y", auto_adjust=True, progress=False)
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = data.columns.get_level_values(0)
+                if "Close" not in data.columns:
+                    continue
+                ret = np.log(data["Close"] / data["Close"].shift(1)).dropna()
+                # só aceita séries com tamanho mínimo
+                if len(ret) < 200:
+                    continue
+                returns_dict[sym] = ret
+
+                
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = data.columns.get_level_values(0)
+
+                if not {"Open", "High", "Low", "Close"}.issubset(data.columns):
+                    continue
+
+                feats = ar_garch_features_safe(data["Close"])
+                df = pd.concat([data, feats], axis=1).dropna()
+
+                if len(df) < 300:
+                    continue
+
+                tp_list = np.linspace(0.02, 0.10, 6)
+                sl_list = np.linspace(0.01, 0.06, 6)
+
+                # 👉 USO DETERMINÍSTICO
+                res = evaluate_tp_sl_ar_garch(
+                    df, feats, tp_list, sl_list, horizon
+                )
+
+                if res.empty:
+                    continue
+
+                best = res.sort_values(
+                    "EV_adj", ascending=False
+                ).iloc[0]
+
+                portfolio_rows.append({
+                    "Ticker": sym,
+                    "TP": best.TP,
+                    "SL": best.SL,
+                    "mu": feats["mu_ar"].iloc[-1],
+                    "sigma": feats["sigma"].iloc[-1],
+                    "EV_det": best.EV_adj,
+                    "Kelly_det": best.Kelly_frac
+                })
+
+            except Exception:
+                continue
+
+            progress.progress((i + 1) / len(tickers))
+
+    portfolio_df = pd.DataFrame(portfolio_rows)
+
+    if portfolio_df.empty:
+        st.warning("Nenhum ticker válido encontrado.")
+        st.stop()
+
+    # Rank determinístico
+    portfolio_df = portfolio_df.sort_values(
+        "EV_det", ascending=False
+    )
+
+    if len(returns_dict) < 2:
+        st.warning("Ativos insuficientes para cálculo de correlação.")
+        corr_matrix = None
+    else:
+        returns_df = pd.DataFrame(returns_dict)
+        returns_df = returns_df.dropna(axis=0, how="any")
+        corr_matrix = returns_df.corr()
+
+    MAX_CORR = 0.6
+    
+    # Seleciona apenas os melhores (ex: top 10)
+    top_n = min(10, len(portfolio_df))
+    candidates_df = portfolio_df.head(top_n).copy()
+
+    # =============================
+    # FASE 2 — SIMULAÇÃO (APENAS TOPS)
+    # =============================
+    sim_rows = []
+
+    with st.spinner("Fase 2: Simulações Monte Carlo..."):
+        for _, row in candidates_df.iterrows():
+            mu = row["mu"]
+            sigma = row["sigma"]
+            tp = row["TP"]
+            sl = row["SL"]
+
+            # 👉 AGORA SIM: simulação
+            p_tp, p_sl = prob_tp_sl(
+                mu, sigma, tp, sl, horizon, n_sim=5000
+            )
+
+            if p_tp <= 0 or p_sl <= 0:
+                continue
+
+            EV_sim = compute_ev(tp, sl, p_tp, p_sl)
+            kelly_sim = kelly_fraction(tp, sl, p_tp)
+
+            sim_rows.append({
+                "Ticker": row["Ticker"],
+                "TP": tp,
+                "SL": sl,
+                "Prob_TP": p_tp,
+                "EV_ajustado": EV_sim,
+                "Kelly_%": min(kelly_sim / np.sqrt(horizon), 0.15) * 100
+            })
+
+    sim_df = pd.DataFrame(sim_rows)
+
+    if sim_df.empty:
+        st.warning("Nenhuma estratégia válida após simulação.")
+        st.stop()
+
+    # =============================
+    # MONTA PORTFÓLIO FINAL
+    # =============================
+    sim_df = sim_df.sort_values("EV_ajustado", ascending=False)
+
+    selected = []
+    kelly_sum = 0.0
+    for _, row in sim_df.iterrows():
+        sym = row["Ticker"]
+        # verifica correlação com os já escolhidos
+        ok = True
+        for sel in selected:
+            if corr_matrix is not None:
+                corr = corr_matrix.loc[sym, sel["Ticker"]]
+                if corr > MAX_CORR:
+                    ok = False
+                    break
+        if not ok:
+            continue
+        if kelly_sum + row["Kelly_%"] <= 100.0:
+            selected.append(row)
+            kelly_sum += row["Kelly_%"]
+        else:
+            break
+
+
+    final_df = pd.DataFrame(selected)
+
+    # =============================
+    # EV DA CARTEIRA
+    # =============================
+    final_df["w"] = final_df["Kelly_%"] / 100
+
+    EV_carteira = (final_df["w"] * final_df["EV_ajustado"]).sum()
+    EV_dia = EV_carteira / horizon
+    EV_anual_aprox = EV_dia * 252
+
+    st.success(f"Portfólio montado | Kelly total: {kelly_sum:.2f}%")
+
+    st.metric(
+        f"EV esperado da carteira (H = {horizon} dias)",
+        f"{EV_carteira:.2%}"
+    )
+
+    st.metric(
+        "EV médio diário (aprox.)",
+        f"{EV_dia:.3%}"
+    )
+
+    st.metric(
+        "EV anualizado (linear, conservador)",
+        f"{EV_anual_aprox:.2%}"
+    )
+
+
+    st.dataframe(final_df.reset_index(drop=True))
