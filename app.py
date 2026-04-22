@@ -18,8 +18,8 @@ st.title("📊 Quant Trading Pipeline (Corrigido e Profissional)")
 # PARÂMETROS
 # =========================
 
-TP = 0.03
-SL = -0.02
+TP = 0.2
+SL = -0.1
 N_DIAS = 10
 N_SIM = 10000
 COST = 0.001
