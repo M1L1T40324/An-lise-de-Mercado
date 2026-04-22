@@ -467,7 +467,7 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
 
                 tp_list = np.linspace(0.02, 0.10, 6)
                 sl_list = np.linspace(0.01, 0.06, 6)
-              except:
+            except:
 
                 # 👉 USO DETERMINÍSTICO
                 returns = np.log(data["Close"] / data["Close"].shift(1)).dropna()
