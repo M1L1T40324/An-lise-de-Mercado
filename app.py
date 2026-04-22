@@ -74,21 +74,22 @@ def monte_carlo_garch(res, mu_ml=0):
     sl_hit = 0
     none_hit = 0
 
+    dt = 1/252
+
     for _ in range(N_SIM):
 
         sigma2 = omega / (1 - alpha - beta)
         S = 1
-
         hit = False
 
         for _ in range(N_DIAS):
+
             z = np.random.normal()
 
             sigma2 = omega + alpha*(z**2) + beta*sigma2
-            sigma = np.sqrt(sigma2)
+            sigma = np.sqrt(sigma2) / 100  # 🔥 CORREÇÃO
 
-            # 🔥 agora com drift opcional
-            S *= np.exp(mu_ml + sigma*z)
+            S *= np.exp((mu_ml - 0.5*sigma**2)*dt + sigma*np.sqrt(dt)*z)
 
             if S - 1 >= TP:
                 tp_hit += 1
@@ -105,11 +106,7 @@ def monte_carlo_garch(res, mu_ml=0):
 
     total = N_SIM
 
-    return (
-        tp_hit / total,
-        sl_hit / total,
-        none_hit / total
-    )
+    return tp_hit/total, sl_hit/total, none_hit/total
 def modelo_ml(df):
 
     df["target"] = df["log_return"].shift(-1)
