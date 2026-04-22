@@ -211,8 +211,7 @@ if rodar:
         # TP vs SL
         # -----------------
 
-        p_tp, p_sl = monte_carlo_garch(garch)
-
+        p_tp, p_sl, p_none = monte_carlo_garch(garch, mu_ml=pred[-1])
         st.subheader("🎯 Probabilidade de Trade")
 
         st.write(f"TP ({TP*100:.1f}%): {p_tp:.2%}")
