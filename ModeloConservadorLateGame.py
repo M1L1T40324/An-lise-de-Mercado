@@ -170,32 +170,102 @@ def label_tp_sl(df, tp, sl, horizon):
 # 3. TRAIN XGBOOST MODEL
 # =========================
 
-def train_model(X, y, min_samples=150):
-    data = pd.concat([X, y.rename("target")], axis=1).dropna()
+def train_mu_model(df):
 
-    if len(data) < min_samples:
-        raise ValueError(f"Amostras insuficientes: {len(data)}")
+    df = df.copy()
+    df["ret"] = np.log(df["Close"] / df["Close"].shift(1))
 
-    split = int(len(data) * 0.7)
+    df["vol_5"] = df["ret"].rolling(5).std()
+    df["vol_10"] = df["ret"].rolling(10).std()
+    df["lag1"] = df["ret"].shift(1)
 
-    X_train, y_train = data.iloc[:split][X.columns], data.iloc[:split]["target"]
-    X_test, y_test = data.iloc[split:][X.columns], data.iloc[split:]["target"]
+    df["target"] = (df["ret"].shift(-1) > 0).astype(int)
+
+    data = df[["vol_5", "vol_10", "lag1", "target"]].dropna()
+
+    if len(data) < 200:
+        return 0
+
+    X = data[["vol_5", "vol_10", "lag1"]]
+    y = data["target"]
 
     model = XGBClassifier(
-        n_estimators=250,
-        max_depth=4,
-        learning_rate=0.04,
+        n_estimators=150,
+        max_depth=3,
+        learning_rate=0.05,
         subsample=0.8,
         colsample_bytree=0.8,
-        eval_metric="auc",
-        random_state=42
+        eval_metric="logloss"
     )
 
-    model.fit(X_train, y_train)
-    auc = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
+    model.fit(X, y)
 
-    return model, auc
+    last = X.iloc[-1:].values
+    p_up = model.predict_proba(last)[0, 1]
 
+    # converte probabilidade em retorno esperado
+    sigma = df["ret"].std()
+    mu_ml = (p_up - 0.5) * 2 * sigma
+
+    return mu_ml
+
+def get_garch_params(returns):
+    if not ARCH_OK:
+        return None
+
+    model = arch_model(returns * 100, vol="Garch", p=1, q=1)
+    res = model.fit(disp="off")
+
+    p = res.params
+
+    return p["omega"], p["alpha[1]"], p["beta[1]"]
+
+def simulate_path_real(returns, mu, horizon, omega, alpha, beta):
+
+    sigma2 = np.var(returns)
+    S = 0
+    path = []
+
+    for _ in range(horizon):
+
+        # bootstrap real (preserva caudas)
+        shock = np.random.choice(returns)
+
+        sigma2 = omega + alpha * (shock**2) + beta * sigma2
+        sigma = np.sqrt(sigma2)
+
+        z = np.random.normal()
+
+        r = mu + sigma * z
+        S += r
+
+        path.append(S)
+
+    return np.array(path)
+
+def prob_tp_sl_real(returns, mu, tp, sl, horizon, omega, alpha, beta, n_sim=3000):
+
+    tp_hit, sl_hit = 0, 0
+
+    for _ in range(n_sim):
+
+        path = simulate_path_real(
+            returns, mu, horizon, omega, alpha, beta
+        )
+
+        tp_time = np.argmax(path >= tp) if np.any(path >= tp) else np.inf
+        sl_time = np.argmax(path <= -sl) if np.any(path <= -sl) else np.inf
+
+        if tp_time < sl_time:
+            tp_hit += 1
+        elif sl_time < tp_time:
+            sl_hit += 1
+
+    total = tp_hit + sl_hit
+    if total == 0:
+        return 0.0, 0.0
+
+    return tp_hit / total, sl_hit / total
 
 # =========================
 # 4. TP/SL GRID SEARCH (COM RISCO)
@@ -399,30 +469,22 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
                 sl_list = np.linspace(0.01, 0.06, 6)
 
                 # 👉 USO DETERMINÍSTICO
-                res = evaluate_tp_sl_ar_garch(
-                    df, feats, tp_list, sl_list, horizon
-                )
+                returns = np.log(data["Close"] / data["Close"].shift(1)).dropna()
 
-                if res.empty:
-                    continue
+mu_ml = train_mu_model(data)
+garch_params = get_garch_params(returns)
 
-                best = res.sort_values(
-                    "EV_adj", ascending=False
-                ).iloc[0]
+if garch_params is None:
+    continue
 
-                portfolio_rows.append({
-                    "Ticker": sym,
-                    "TP": best.TP,
-                    "SL": best.SL,
-                    "mu": feats["mu_ar"].iloc[-1],
-                    "sigma": feats["sigma"].iloc[-1],
-                    "EV_det": best.EV_adj,
-                    "Kelly_det": best.Kelly_frac
-                })
+omega, alpha, beta = garch_params
 
-            except Exception:
-                continue
-
+"mu": mu_ml,
+"sigma": returns.std(),
+"omega": omega,
+"alpha": alpha,
+"beta": beta,
+"returns": returns.values,
             progress.progress((i + 1) / len(tickers))
 
     portfolio_df = pd.DataFrame(portfolio_rows)
@@ -463,10 +525,17 @@ if st.sidebar.button("Rodar scan e montar portfólio"):
             sl = row["SL"]
 
             # 👉 AGORA SIM: simulação
-            p_tp, p_sl = prob_tp_sl(
-                mu, sigma, tp, sl, horizon, n_sim=5000
-            )
-
+            p_tp, p_sl = prob_tp_sl_real(
+    row["returns"],
+    row["mu"],
+    row["TP"],
+    row["SL"],
+    horizon,
+    row["omega"],
+    row["alpha"],
+    row["beta"],
+    n_sim=3000
+)
             if p_tp <= 0 or p_sl <= 0:
                 continue
 
